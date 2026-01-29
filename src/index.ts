@@ -28,13 +28,23 @@ function agendarLatidoAleatorio(guildId: string, connection: any) {
     player.play(resource)
     connection.subscribe(player)
 
+    // Interrompe o áudio após 3,5 segundos
+    const stopTimer = setTimeout(() => {
+      if (player.state.status !== AudioPlayerStatus.Idle) {
+        console.log('⏱️  Latido interrompido (limite de 3,5s)')
+        player.stop()
+      }
+    }, 3500)
+
     player.on(AudioPlayerStatus.Idle, () => {
+      clearTimeout(stopTimer)
       console.log('✅ Latido finalizado')
       // Agenda o próximo latido
       agendarLatidoAleatorio(guildId, connection)
     })
 
     player.on('error', (error) => {
+      clearTimeout(stopTimer)
       console.error('❌ Erro ao tocar latido:', error)
       // Mesmo com erro, agenda o próximo
       agendarLatidoAleatorio(guildId, connection)
@@ -49,6 +59,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 })
 
@@ -67,6 +79,54 @@ client.on('error', (error) => {
 
 client.on('warn', (info) => {
   console.warn('⚠️  Aviso:', info)
+})
+
+client.on('messageCreate', async (message) => {
+  // Ignora mensagens de bots
+  if (message.author.bot) return
+
+  // Ignora mensagens vazias
+  if (!message.content.trim()) return
+
+  // Verifica se o bot está conectado em um canal de voz neste servidor
+  const connection = getVoiceConnection(message.guildId!)
+  if (!connection) return
+
+  const audioName = message.content.trim().toLowerCase()
+  const audioPath = join(__dirname, `../audios/${audioName}.mp3`)
+
+  // Verifica se o arquivo existe
+  const fs = await import('fs')
+  if (!fs.existsSync(audioPath)) {
+    console.log(`⏭️  Áudio "${audioName}.mp3" não encontrado`)
+    return
+  }
+
+  console.log(`🎵 Tocando áudio solicitado: ${audioName}.mp3`)
+
+  const player = createAudioPlayer()
+  const resource = createAudioResource(audioPath)
+
+  player.play(resource)
+  connection.subscribe(player)
+
+  // Interrompe o áudio após 3,5 segundos
+  const stopTimer = setTimeout(() => {
+    if (player.state.status !== AudioPlayerStatus.Idle) {
+      console.log(`⏱️  Áudio "${audioName}.mp3" interrompido (limite de 3,5s)`)
+      player.stop()
+    }
+  }, 5000)
+
+  player.on(AudioPlayerStatus.Idle, () => {
+    clearTimeout(stopTimer)
+    console.log(`✅ Áudio "${audioName}.mp3" finalizado`)
+  })
+
+  player.on('error', (error) => {
+    clearTimeout(stopTimer)
+    console.error(`❌ Erro ao tocar "${audioName}.mp3":`, error)
+  })
 })
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -132,13 +192,23 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         player.play(resource)
         connection.subscribe(player)
 
+        // Interrompe o áudio após 3,5 segundos
+        const stopTimer = setTimeout(() => {
+          if (player.state.status !== AudioPlayerStatus.Idle) {
+            console.log('⏱️  Áudio de entrada interrompido (limite de 3,5s)')
+            player.stop()
+          }
+        }, 3500)
+
         player.on(AudioPlayerStatus.Idle, () => {
+          clearTimeout(stopTimer)
           console.log('✅ Áudio de entrada finalizado')
           // Inicia o ciclo de latidos aleatórios
           agendarLatidoAleatorio(channel.guild.id, connection)
         })
 
         player.on('error', (error) => {
+          clearTimeout(stopTimer)
           console.error('❌ Erro ao tocar áudio de entrada:', error)
           // Mesmo com erro, inicia os latidos aleatórios
           agendarLatidoAleatorio(channel.guild.id, connection)
