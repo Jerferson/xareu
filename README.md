@@ -8,7 +8,7 @@
 [![Discord.js](https://img.shields.io/badge/Discord.js-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.js.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 
-**Um cachorrinho brasileiro 🇧🇷 que transforma seu servidor Discord em uma verdadeira bagunça organizada**
+**Um cachorrinho multicultural 🌍 que transforma seu servidor Discord em uma verdadeira bagunça organizada**
 
 [Funcionalidades](#-o-que-o-xaréu-faz-hoje) • [Personalidade](#-conhecendo-o-xaréu) • [Instalação](#-como-adotar-o-xaréu) • [Roadmap](#-roadmap) • [Contribuir](#-contribuições)
 
@@ -24,7 +24,7 @@ Ele é aquele cachorro que:
 - 🐕 **Não larga do seu pé** (literalmente entra onde você entra)
 - 🤪 **Zoeiro profissional** (late na hora errada, mas do jeito certo)
 - 👥 **Sociável demais** (odeia ficar sozinho na casinha)
-- 🇧🇷 **100% brazuca** (entende suas referências e memes)
+- � **Multicultural** (mistura referências e memes de várias culturas)
 - 🧠 **Em evolução** (cada dia aprende uma arte nova)
 
 ### ⚠️ Aviso aos donos de primeira viagem:
@@ -188,11 +188,27 @@ audios/
 5. 📤 Push (`git push origin feature/truque-novo`)
 6. 🎯 Abra um Pull Request
 
-### Regras de Convivência:
-- ✨ Mantenha a personalidade zoeira do Xaréu
-- 📝 Documente suas mudanças
-- 🧪 Teste antes de mandar (ninguém quer um Xaréu bugado)
+### ⚠️ Regras de Ouro para Manter o Xaréu sendo Xaréu:
+
+**1. 🎭 Personalidade Inegociável**
+- ✨ Mantenha o tom zoeiro e descontraído
+- 🐕 Xaréu late, brinca e zoa — isso é essencial
+- 🚫 Nada de transformar ele num bot "profissional" e sem graça
+- 💛 Funcionalidades novas devem ter a cara dele
+
+**2. 🧪 Teste Antes de Soltar o Bichinho**
+- ✅ Compile o projeto (`npm run build`)
+- 🎮 Teste localmente (`npm run dev`)
+- 🐛 Ninguém quer um Xaréu bugado latindo errado
+
+**3. 📝 Documente Como Se Fosse Pro Seu Amigo**
 - 💬 Seja descritivo nos PRs
+- 🤓 Use os arquivos de documentação quando necessário
+- 🎯 Explique PORQUÊ você fez aquela mudança
+
+### 📚 Documentação para Contribuidores
+- 📖 [CONTRIBUTING.md](CONTRIBUTING.md) - Guia completo de contribuição e padrões de código
+- 🏗️ [ARCHITECTURE.md](ARCHITECTURE.md) - Arquitetura detalhada do projeto
 
 **Issues são bem-vindas!** Label `idea` para sugestões malucas 🚀
 
