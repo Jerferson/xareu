@@ -4,7 +4,7 @@ import {
   getVoiceConnections,
   VoiceConnection,
 } from '@discordjs/voice'
-import { Client } from 'discord.js'
+import { Client, VoiceChannel, Guild } from 'discord.js'
 import { AudioService } from './AudioService'
 import { BOT_CONFIG } from '../config/constants'
 import { selectRandomMinute, minutesToMilliseconds } from '../utils/helpers'
@@ -17,6 +17,8 @@ export class VoiceService {
   private barkTimersByGuild = new Map<string, NodeJS.Timeout>()
   private audioService: AudioService
   private client: Client
+  private isInCasinha = new Map<string, boolean>()
+  private isFollowingUser = new Map<string, boolean>()
 
   constructor(client: Client, audioService: AudioService) {
     this.client = client
@@ -62,6 +64,11 @@ export class VoiceService {
    */
   handleChannelEntry(voiceChannel: any, guildId: string): void {
     console.log('   ✅ Usuário entrou no canal')
+
+    // Se está indo para um canal diferente da casinha, marca que saiu
+    if (voiceChannel.name !== BOT_CONFIG.CASINHA_CHANNEL_NAME) {
+      this.markLeftCasinha(guildId)
+    }
 
     try {
       const connection = this.joinVoiceChannel(voiceChannel)
@@ -156,5 +163,163 @@ export class VoiceService {
    */
   playAudioByName(audioName: string, connection: VoiceConnection): void {
     this.audioService.playAudioByName(audioName, connection, BOT_CONFIG.AUDIO_TIME_LIMIT_MS)
+  }
+
+  /**
+   * Encontra o canal "Casinha do Xeréu" em um servidor
+   */
+  private findCasinhaChannel(guild: Guild): VoiceChannel | null {
+    const channel = guild.channels.cache.find(
+      (ch) => ch.name === BOT_CONFIG.CASINHA_CHANNEL_NAME && ch.isVoiceBased()
+    )
+    return channel as VoiceChannel | null
+  }
+
+  /**
+   * Move o bot para a casinha do Xeréu
+   */
+  goToCasinha(guildId: string): void {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return
+
+    const casinhaChannel = this.findCasinhaChannel(guild)
+    if (!casinhaChannel) {
+      console.log(`🏠 Casinha do Xeréu não encontrada no servidor ${guild.name}`)
+      return
+    }
+
+    console.log(`🏠 Indo para a Casinha do Xeréu...`)
+
+    // Cancela latidos agendados
+    this.cancelScheduledBarks(guildId)
+
+    // Entra na casinha
+    this.joinVoiceChannel(casinhaChannel)
+    this.isInCasinha.set(guildId, true)
+    this.isFollowingUser.set(guildId, false)
+  }
+
+  /**
+   * Verifica se alguém está conectado em algum canal de voz (exceto o bot)
+   */
+  hasUsersInVoice(guild: Guild): boolean {
+    for (const channel of guild.channels.cache.values()) {
+      if (channel.isVoiceBased()) {
+        const voiceChannel = channel as VoiceChannel
+        const members = voiceChannel.members.filter(m => !m.user.bot)
+        if (members.size > 0) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  /**
+   * Verifica se o bot está sozinho em um canal
+   */
+  isBotAloneInChannel(guildId: string): boolean {
+    const connection = getVoiceConnection(guildId)
+    if (!connection) return false
+
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return false
+
+    // Encontra o canal onde o bot está
+    const botMember = guild.members.cache.get(this.client.user?.id || '')
+    const botChannel = botMember?.voice.channel as VoiceChannel | null
+
+    if (!botChannel) return false
+
+    // Verifica se há outros usuários (não-bots) no canal
+    const humanMembers = botChannel.members.filter(m => !m.user.bot)
+    return humanMembers.size === 0
+  }
+
+  /**
+   * Lida com usuário entrando em um canal (acordar o bot)
+   */
+  handleUserJoinedChannel(guildId: string): void {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return
+
+    const casinhaChannel = this.findCasinhaChannel(guild)
+    if (!casinhaChannel) {
+      console.log(`🏠 Casinha do Xeréu não existe no servidor ${guild.name}`)
+      return
+    }
+
+    const connection = getVoiceConnection(guildId)
+    if (!connection) {
+      console.log(`😴 Xeréu acordando... Indo para a casinha!`)
+      this.goToCasinha(guildId)
+    }
+  }
+
+  /**
+   * Lida com o bot ficando sozinho (sempre desconecta quando sozinho no servidor)
+   */
+  handleBotAlone(guildId: string): void {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return
+
+    // Se não há ninguém no servidor, desconecta (dorme)
+    if (!this.hasUsersInVoice(guild)) {
+      console.log(`😴 Xeréu está sozinho no servidor e vai dormir...`)
+      this.leaveVoiceChannel(guildId)
+      this.isInCasinha.delete(guildId)
+      this.isFollowingUser.delete(guildId)
+      return
+    }
+
+    // Se há alguém no servidor mas não no canal do bot, volta para a casinha
+    const casinhaChannel = this.findCasinhaChannel(guild)
+    if (casinhaChannel) {
+      console.log(`🏠 Xeréu ficou sozinho no canal, voltando para a casinha...`)
+      this.goToCasinha(guildId)
+    } else {
+      // Se não tem casinha, desconecta
+      console.log(`😴 Xeréu ficou sozinho e não há casinha, vai dormir...`)
+      this.leaveVoiceChannel(guildId)
+      this.isInCasinha.delete(guildId)
+      this.isFollowingUser.delete(guildId)
+    }
+  }
+
+  /**
+   * Verifica se está na casinha
+   */
+  isInCasinhaChannel(guildId: string): boolean {
+    return this.isInCasinha.get(guildId) || false
+  }
+
+  /**
+   * Marca que saiu da casinha (quando chamado para outro canal)
+   */
+  markLeftCasinha(guildId: string): void {
+    this.isInCasinha.set(guildId, false)
+  }
+
+  /**
+   * Verifica se está seguindo um usuário
+   */
+  isFollowingUsers(guildId: string): boolean {
+    return this.isFollowingUser.get(guildId) || false
+  }
+
+  /**
+   * Marca que começou a seguir usuários (quando alguém entra na casinha)
+   */
+  startFollowingUser(guildId: string): void {
+    console.log('🐕 Xeréu agora vai seguir o usuário!')
+    this.isFollowingUser.set(guildId, true)
+    this.isInCasinha.set(guildId, false)
+  }
+
+  /**
+   * Para de seguir usuários
+   */
+  stopFollowingUser(guildId: string): void {
+    this.isFollowingUser.set(guildId, false)
   }
 }

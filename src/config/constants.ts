@@ -14,6 +14,9 @@ export const BOT_CONFIG = {
 
   /** URL de convite do bot */
   INVITE_URL: 'https://discord.com/api/oauth2/authorize?client_id=1466193686542028982&permissions=3146752&scope=bot',
+
+  /** Nome do canal "Casinha do Xeréu" */
+  CASINHA_CHANNEL_NAME: 'Casinha do Xeréu',
 } as const
 
 export const AUDIO_CONFIG = {

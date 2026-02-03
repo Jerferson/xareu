@@ -36,15 +36,35 @@ Ele é aquele cachorro que:
 
 ## 🔊 O que o Xaréu faz hoje
 
+### � A Casinha do Xaréu (NOVO!)
+
+**Agora o Xaréu tem um cantinho dele no servidor!**
+
+```
+😴 Ninguém online → Xaréu dorme (offline)
+🏠 Alguém entra → Xaréu acorda e vai pra casinha
+🐕 Você entra na casinha → Xaréu começa a te seguir!
+👋 Você sai → Xaréu volta pra casinha
+```
+
+**Como funciona:**
+1. Crie um canal de voz chamado **"Casinha do Xeréu"** no seu servidor
+2. Quando alguém entra no servidor, o Xaréu acorda e fica esperando na casinha
+3. Entre na casinha pra ele te seguir por todos os canais
+4. Se você sair ou trocar de canal, ele volta pra casinha esperando
+5. Quando não há ninguém online, ele dorme (desconecta)
+
+*É tipo ter um cachorro de verdade, mas sem precisar limpar cocô* 💩❌
+
 ### 🎧 Sistema de Acompanhamento (a.k.a "Colado em você")
 
 ```
-Você entra → Xaréu entra 🐕
-Você sai → Xaréu sai 👋
-Você muda de canal → Xaréu muda junto 🏃‍♂️
+Você entra na casinha → Xaréu te segue! 🐕
+Você muda de canal → Xaréu vai junto 🏃‍♂️
+Você sai ou ele fica sozinho → Volta pra casinha 🏠
 ```
 
-É tipo aquele cachorro que te segue até no banheiro. Sim, é exatamente isso.
+Agora ele não é mais tão grudento! Você precisa ir buscar ele na casinha primeiro 😏
 
 ### 🐶 Sons e Reações
 
@@ -74,8 +94,13 @@ Não precisa mais decorar nome exato. O Xaréu te entende! 🧠
 2. **Presente, mas não invasivo** (tá bom, talvez um pouquinho)
 3. **Valoriza a matilha** 🐺
 
-### Comportamento Adaptativo (em breve):
-No futuro, Xaréu vai:
+### Comportamento Adaptativo:
+**Já implementado:**
+- 🏠 Tem uma casinha própria e dorme quando está sozinho
+- 🐕 Só segue quem entra na casinha dele
+- 😴 Acorda automaticamente quando alguém entra no servidor
+
+**Em breve:**
 - Latir mais pra quem brinca mais com ele
 - Ficar quietinho quando perceber que ninguém tá afim
 - Desenvolver personalidades únicas por servidor
@@ -85,15 +110,6 @@ No futuro, Xaréu vai:
 ---
 
 ## 🛣️ Roadmap (O que vem por aí)
-
-### 🏠 A Casinha do Xaréu
-```typescript
-// Nova funcionalidade:
-canal_fixo: "casinha-do-xareu"
-comando: "!vem_ca_xareu"
-comportamento: Xaréu sai da casinha e vai até você
-```
-Finalmente o bichinho vai ter um cantinho dele! 🏡
 
 ### 🦮 Sistema de Coleira
 ```
@@ -105,21 +121,25 @@ Finalmente o bichinho vai ter um cantinho dele! 🏡
 
 Disputa de coleira = novo meta do servidor 😂
 
-### 💤 Modo Descanso
+### 💤 Modo Descanso ✅ IMPLEMENTADO
 ```
-Bot iniciado → Xaréu na casinha 😴
-Alguém chama → Xaréu acorda e vai correndo 🏃
-Timeout → Volta pra casinha automaticamente
+Servidor vazio → Xaréu dorme (desconecta) 😴
+Alguém entra → Xaréu acorda e vai pra casinha 🏠
+Fica sozinho → Volta pra casinha automaticamente 🔄
+Ninguém online → Dorme de novo 💤
 ```
 
-Porque até cachorro virtual precisa dormir.
+Porque até cachorro virtual precisa dormir. Agora implementado e funcionando!
 
 ### 🎮 Futuras Features Loucas
+- [x] 🏠 Casinha do Xaréu com comportamento inteligente
+- [x] 😴 Sistema de dormir/acordar automático
 - [ ] Sistema de fome (precisa de petiscos virtuais)
 - [ ] Humor baseado em interações
 - [ ] Easter eggs secretos
 - [ ] Reações a palavras-chave
 - [ ] Sistema de truques (senta, rola, finge de morto)
+- [ ] Comando `!vem_ca_xareu` para chamá-lo da casinha
 
 *Tá maluco? Abre uma Issue e vamos conversar!* 💭
 
@@ -162,6 +182,18 @@ npm run dev
 ```
 https://discord.com/api/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=3146752&scope=bot
 ```
+
+### 🏠 Configurando a Casinha do Xaréu
+
+**Para ativar a funcionalidade da casinha:**
+
+1. No seu servidor Discord, crie um canal de voz
+2. Nomeie EXATAMENTE como: **"Casinha do Xeréu"**
+3. Pronto! O Xaréu já vai usar automaticamente
+
+**Comportamento:**
+- ✅ Se a casinha existir: Xaréu fica lá quando não estiver seguindo ninguém
+- ⚠️ Se não existir: Funciona no modo legado (segue todos automaticamente)
 
 ### 📁 Adicionando Áudios
 ```bash
