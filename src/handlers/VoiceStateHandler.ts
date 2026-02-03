@@ -34,12 +34,16 @@ export class VoiceStateHandler {
     if (userLeftChannel) {
       console.log('   👋 Usuário saiu do canal')
 
-      // Verifica se o bot ficou sozinho
+      // Verifica se o bot ficou sozinho no canal atual
       setTimeout(() => {
-        if (this.voiceService.isBotAloneInChannel(guildId)) {
+        const isAlone = this.voiceService.isBotAloneInChannel(guildId)
+
+        // Só volta para casinha se o bot realmente ficou sozinho
+        // (Não importa se estava seguindo ou não - o importante é estar sozinho)
+        if (isAlone) {
           this.voiceService.handleBotAlone(guildId)
         }
-      }, 1000) // Pequeno delay para garantir que o estado foi atualizado
+      }, 2000) // Delay para garantir que o estado foi atualizado
       return
     }
 
@@ -48,9 +52,11 @@ export class VoiceStateHandler {
     if (userJoinedOrMovedChannel) {
       console.log('   ✅ Usuário entrou no canal')
 
-      // Se é a primeira pessoa entrando no servidor, acorda o bot e vai para a casinha
+      // Se é a primeira pessoa entrando no servidor E o bot não está conectado, acorda o bot
       const wasServerEmpty = !oldState.channel
-      if (wasServerEmpty) {
+      const botNotConnected = !this.voiceService.isBotConnected(guildId)
+
+      if (wasServerEmpty && botNotConnected) {
         this.voiceService.handleUserJoinedChannel(guildId)
         // Não continua - bot fica na casinha esperando
         return
@@ -82,10 +88,23 @@ export class VoiceStateHandler {
         } else {
           console.log('   🏠 Xeréu está na casinha, esperando ser chamado...')
         }
-      } else {
-        // Se não está na casinha nem seguindo, comportamento normal (legado)
-        this.voiceService.handleChannelEntry(newState.channel, guildId)
+        return
       }
+
+      // Se chegou aqui e há casinha no servidor, não faz nada (modo casinha ativo)
+      const guild = newState.guild
+      const hasCasinha = guild.channels.cache.find(
+        (ch) => ch.name === 'Casinha do Xeréu' && ch.isVoiceBased()
+      )
+
+      if (hasCasinha) {
+        console.log('   🏠 Modo casinha ativo - aguardando usuário entrar na casinha...')
+        return
+      }
+
+      // Apenas executa comportamento legado se NÃO houver casinha no servidor
+      console.log('   ⚠️ Sem casinha - modo legado ativado')
+      this.voiceService.handleChannelEntry(newState.channel, guildId)
       return
     }
 

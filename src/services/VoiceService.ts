@@ -37,6 +37,9 @@ export class VoiceService {
       adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     })
 
+    // Aumenta o limite de listeners para evitar warning
+    connection.setMaxListeners(20)
+
     connection.on('error', (error) => {
       console.error('❌ Erro na conexão de voz:', error)
     })
@@ -208,12 +211,17 @@ export class VoiceService {
 
     console.log(`🏠 Indo para a Casinha do Xeréu...`)
 
+    // Para de seguir usuários
+    if (this.isFollowingUser.get(guildId)) {
+      console.log(`🛑 Xeréu parou de seguir - aguardando na casinha`)
+    }
+    this.isFollowingUser.set(guildId, false)
+
     // NÃO cancela latidos agendados - eles continuam rodando independente do canal
 
     // Entra na casinha
     this.joinVoiceChannel(casinhaChannel)
     this.isInCasinha.set(guildId, true)
-    this.isFollowingUser.set(guildId, false)
   }
 
   /**
@@ -269,6 +277,13 @@ export class VoiceService {
     const connection = getVoiceConnection(guildId)
     if (!connection) {
       console.log(`😴 Xeréu acordando... Indo para a casinha!`)
+      // Limpa estados antes de ir para a casinha
+      this.isFollowingUser.set(guildId, false)
+      this.goToCasinha(guildId)
+    } else {
+      // Se já há conexão (reinício do bot), garante que não está seguindo e vai para casinha
+      console.log(`🔄 Bot já conectado - resetando estado e indo para casinha...`)
+      this.isFollowingUser.set(guildId, false)
       this.goToCasinha(guildId)
     }
   }
@@ -308,6 +323,14 @@ export class VoiceService {
    */
   isInCasinhaChannel(guildId: string): boolean {
     return this.isInCasinha.get(guildId) || false
+  }
+
+  /**
+   * Verifica se o bot está conectado no servidor
+   */
+  isBotConnected(guildId: string): boolean {
+    const connection = getVoiceConnection(guildId)
+    return connection !== undefined
   }
 
   /**
