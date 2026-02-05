@@ -33,3 +33,6 @@ Thumbs.db
 coverage/
 .nyc_output/
 *.lcov
+
+# Version manager files
+.tool-versions

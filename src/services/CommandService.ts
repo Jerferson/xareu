@@ -46,9 +46,15 @@ export class CommandService {
       return
     }
 
-    await message.reply(`🔊 Tocando "${audioName}.mp3" no servidor: ${guildName}`)
+    const audioFileName = this.voiceService.getBestMatchingAudio(audioName)
 
-    this.voiceService.playAudioByName(audioName, connection)
+    if (!audioFileName) {
+      console.log(`⏭️  Nenhum áudio encontrado para sua busca`)
+    }
+
+    await message.reply(`🔊 Tocando "${audioFileName}.mp3" no servidor: ${guildName}`)
+
+    this.voiceService.playAudioByName(audioFileName, connection)
   }
 
   /**

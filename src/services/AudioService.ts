@@ -60,6 +60,24 @@ export class AudioService {
     return player
   }
 
+  getBestMatchingAudio(completeOrPartiaAudioName: string): string {
+    const audioFiles = fs.readdirSync(this.audiosPath)
+      .map((file): AudioFileInfo => {
+        const bootstrap = file.includes(completeOrPartiaAudioName) ? 100 : 0
+        const metric = bootstrap + stringSimilarity(completeOrPartiaAudioName, file.replace(/\D/, ''))
+        return { file, distance: metric }
+      })
+      .sort((o1, o2) => o2.distance - o1.distance)
+
+    const bestMatch = audioFiles[0]
+    if (!bestMatch) {
+      console.error('❌ Nenhum áudio encontrado')
+      return '';
+    }
+
+    return bestMatch.file;
+  }
+
   /**
    * Toca um áudio específico pelo nome
    */
@@ -68,22 +86,12 @@ export class AudioService {
     connection: VoiceConnection,
     timeLimitMs: number = 5000
   ): void {
-    const audioFiles = fs.readdirSync(this.audiosPath)
-      .map((file): AudioFileInfo => {
-        const bootstrap = file.includes(audioName) ? 100 : 0
-        const metric = bootstrap + stringSimilarity(audioName, file.replace(/\D/, ''))
-        return { file, distance: metric }
-      })
-      .sort((o1, o2) => o2.distance - o1.distance)
-
-    const bestMatch = audioFiles[0]
-    if (!bestMatch) {
-      console.error('❌ Nenhum áudio encontrado')
+    if (!audioName) {
       return
     }
 
-    const audioFilePath = join(this.audiosPath, bestMatch.file)
-    console.log(`🎵 Tocando áudio: ${bestMatch.file}`)
+    const audioFilePath = join(this.audiosPath, audioName)
+    console.log(`🎵 Tocando áudio: ${audioName}`)
     this.createPlayerWithTimeLimit(audioFilePath, connection, timeLimitMs)
   }
 
