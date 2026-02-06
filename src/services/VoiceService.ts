@@ -187,6 +187,13 @@ export class VoiceService {
   }
 
   /**
+   * Dado uma string completa ou parcial, busca o melhor nome de áudio correspondente
+   */
+  getBestMatchingAudio(audioName: string): string {
+    return this.audioService.getBestMatchingAudio(audioName)
+  }
+
+  /**
    * Encontra o canal "Casinha do Xeréu" em um servidor
    */
   private findCasinhaChannel(guild: Guild): VoiceChannel | null {
