@@ -48,7 +48,7 @@ export class CommandService {
 
     const audioFileName = this.voiceService.getBestMatchingAudio(audioName)
 
-    if (!audioFileName) {
+    if (audioFileName.length === 0) {
       console.log(`⏭️  Nenhum áudio encontrado para sua busca`)
     }
 
