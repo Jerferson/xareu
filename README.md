@@ -262,6 +262,15 @@ audios/
       <sub>🎯 Busca inteligente de áudios</sub>
     </td>
     <td align="center">
+      <a href="https://github.com/afa4">
+        <img src="https://github.com/afa4.png" width="100px;" alt=""/>
+        <br />
+        <sub><b>@afa4</b></sub>
+      </a>
+      <br />
+      <sub>🎵 Corrigir nome do arquivo de áudio</sub>
+    </td>
+    <td align="center">
       <a href="#">
         <img src="https://via.placeholder.com/100/808080/FFFFFF?text=YOU" width="100px;" alt=""/>
         <br />
