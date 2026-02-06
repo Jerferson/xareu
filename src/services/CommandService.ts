@@ -52,7 +52,7 @@ export class CommandService {
       console.log(`⏭️  Nenhum áudio encontrado para sua busca`)
     }
 
-    await message.reply(`🔊 Tocando "${audioFileName}.mp3" no servidor: ${guildName}`)
+    await message.reply(`🔊 Tocando "${audioFileName}" no servidor: ${guildName}`)
 
     this.voiceService.playAudioByName(audioFileName, connection)
   }
