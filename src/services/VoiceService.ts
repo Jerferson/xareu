@@ -18,7 +18,8 @@ export class VoiceService {
   private audioService: AudioService
   private client: Client
   private isInCasinha = new Map<string, boolean>()
-  private isFollowingUser = new Map<string, boolean>()
+  /** Mapa de guildId -> userId que tem a coleira */
+  private collarHolder = new Map<string, string>()
 
   constructor(client: Client, audioService: AudioService) {
     this.client = client
@@ -218,12 +219,6 @@ export class VoiceService {
 
     console.log(`🏠 Indo para a Casinha do Xeréu...`)
 
-    // Para de seguir usuários
-    if (this.isFollowingUser.get(guildId)) {
-      console.log(`🛑 Xeréu parou de seguir - aguardando na casinha`)
-    }
-    this.isFollowingUser.set(guildId, false)
-
     // NÃO cancela latidos agendados - eles continuam rodando independente do canal
 
     // Entra na casinha
@@ -281,18 +276,8 @@ export class VoiceService {
       return
     }
 
-    const connection = getVoiceConnection(guildId)
-    if (!connection) {
-      console.log(`😴 Xeréu acordando... Indo para a casinha!`)
-      // Limpa estados antes de ir para a casinha
-      this.isFollowingUser.set(guildId, false)
-      this.goToCasinha(guildId)
-    } else {
-      // Se já há conexão (reinício do bot), garante que não está seguindo e vai para casinha
-      console.log(`🔄 Bot já conectado - resetando estado e indo para casinha...`)
-      this.isFollowingUser.set(guildId, false)
-      this.goToCasinha(guildId)
-    }
+    console.log(`😴 Xeréu acordando... Indo para a casinha!`)
+    this.goToCasinha(guildId)
   }
 
   /**
@@ -302,13 +287,23 @@ export class VoiceService {
     const guild = this.client.guilds.cache.get(guildId)
     if (!guild) return
 
-    // Se não há ninguém no servidor, desconecta (dorme)
+    // Se não há ninguém no servidor, desconecta (dorme) e libera coleira
     if (!this.hasUsersInVoice(guild)) {
       console.log(`😴 Xeréu está sozinho no servidor e vai dormir...`)
+      this.collarHolder.delete(guildId)
       this.leaveVoiceChannel(guildId)
       this.isInCasinha.delete(guildId)
-      this.isFollowingUser.delete(guildId)
       return
+    }
+
+    // Se o dono da coleira saiu, libera a coleira
+    const collarHolderId = this.collarHolder.get(guildId)
+    if (collarHolderId) {
+      const holderMember = guild.members.cache.get(collarHolderId)
+      if (!holderMember?.voice.channel) {
+        console.log(`🏠 Dono da coleira saiu do canal de voz, liberando coleira...`)
+        this.forceReleaseCollar(guildId)
+      }
     }
 
     // Se há alguém no servidor mas não no canal do bot, volta para a casinha
@@ -319,9 +314,9 @@ export class VoiceService {
     } else {
       // Se não tem casinha, desconecta
       console.log(`😴 Xeréu ficou sozinho e não há casinha, vai dormir...`)
+      this.collarHolder.delete(guildId)
       this.leaveVoiceChannel(guildId)
       this.isInCasinha.delete(guildId)
-      this.isFollowingUser.delete(guildId)
     }
   }
 
@@ -347,26 +342,158 @@ export class VoiceService {
     this.isInCasinha.set(guildId, false)
   }
 
+  // ========== MÉTODOS DE COLEIRA ==========
+
   /**
-   * Verifica se está seguindo um usuário
+   * Verifica se um usuário pode pegar a coleira
+   * @returns true se o usuário pode pegar (é master ou não há dono)
    */
-  isFollowingUsers(guildId: string): boolean {
-    return this.isFollowingUser.get(guildId) || false
+  canTakeCollar(guildId: string, userId: string): boolean {
+    const currentHolder = this.collarHolder.get(guildId)
+    const isMaster = userId === BOT_CONFIG.MASTER_USER_ID
+    
+    // Master sempre pode pegar
+    if (isMaster) return true
+    
+    // Pode pegar se não há dono atual
+    return !currentHolder
   }
 
   /**
-   * Marca que começou a seguir usuários (quando alguém entra na casinha)
+   * Dá a coleira para um usuário
+   * @returns true se conseguiu dar a coleira, false se não
    */
-  startFollowingUser(guildId: string): void {
-    console.log('🐕 Xeréu agora vai seguir o usuário!')
-    this.isFollowingUser.set(guildId, true)
+  giveCollar(guildId: string, userId: string): { success: boolean; previousHolder?: string } {
+    const currentHolder = this.collarHolder.get(guildId)
+    const isMaster = userId === BOT_CONFIG.MASTER_USER_ID
+
+    // Se já tem a coleira, não faz nada
+    if (currentHolder === userId) {
+      return { success: true }
+    }
+
+    // Se há outro dono e não é master, não pode pegar
+    if (currentHolder && !isMaster) {
+      return { success: false, previousHolder: currentHolder }
+    }
+
+    // Dá a coleira
+    const previousHolder = currentHolder
+    this.collarHolder.set(guildId, userId)
     this.isInCasinha.set(guildId, false)
+    console.log(`🎀 Coleira dada para ${userId}${previousHolder ? ` (tomada de ${previousHolder})` : ''}`)
+    
+    return { success: true, previousHolder }
   }
 
   /**
-   * Para de seguir usuários
+   * Libera a coleira e volta para a casinha
    */
-  stopFollowingUser(guildId: string): void {
-    this.isFollowingUser.set(guildId, false)
+  releaseCollar(guildId: string, userId: string): boolean {
+    const currentHolder = this.collarHolder.get(guildId)
+    const isMaster = userId === BOT_CONFIG.MASTER_USER_ID
+    
+    // Só pode soltar se é o dono ou é master
+    if (currentHolder !== userId && !isMaster) {
+      return false
+    }
+
+    this.collarHolder.delete(guildId)
+    console.log(`🏠 Coleira liberada, voltando para a casinha...`)
+    
+    this.goToCasinha(guildId)
+    return true
+  }
+
+  /**
+   * Retorna o ID do usuário que tem a coleira
+   */
+  getCollarHolder(guildId: string): string | undefined {
+    return this.collarHolder.get(guildId)
+  }
+
+  /**
+   * Verifica se um usuário específico tem a coleira
+   */
+  hasCollar(guildId: string, userId: string): boolean {
+    return this.collarHolder.get(guildId) === userId
+  }
+
+  /**
+   * Verifica se há alguém com a coleira
+   */
+  isCollarTaken(guildId: string): boolean {
+    return this.collarHolder.has(guildId)
+  }
+
+  /**
+   * Força liberação da coleira (para quando usuário sai do servidor)
+   */
+  forceReleaseCollar(guildId: string): void {
+    const holder = this.collarHolder.get(guildId)
+    if (holder) {
+      console.log(`🏠 Usuário ${holder} saiu, coleira liberada automaticamente`)
+      this.collarHolder.delete(guildId)
+    }
+  }
+
+  /**
+   * Transfere a coleira para um usuário aleatório no canal atual do bot
+   * @returns O novo dono da coleira ou null se não há usuários
+   */
+  transferCollarToRandomUser(guildId: string): string | null {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return null
+
+    // Encontra o canal onde o bot está
+    const botMember = guild.members.cache.get(this.client.user?.id || '')
+    const botChannel = botMember?.voice.channel as VoiceChannel | null
+
+    if (!botChannel) return null
+
+    // Pega todos os usuários humanos no canal (excluindo bots)
+    const humanMembers = botChannel.members.filter(m => !m.user.bot)
+
+    if (humanMembers.size === 0) {
+      console.log('🎲 Nenhum usuário disponível para receber a coleira')
+      return null
+    }
+
+    // Escolhe um usuário aleatório
+    const membersArray = Array.from(humanMembers.values())
+    const randomIndex = Math.floor(Math.random() * membersArray.length)
+    const newHolder = membersArray[randomIndex]
+
+    // Transfere a coleira
+    this.collarHolder.set(guildId, newHolder.id)
+    console.log(`🎲 Coleira transferida aleatoriamente para ${newHolder.user.tag}`)
+
+    return newHolder.id
+  }
+
+  /**
+   * Encontra o guildId onde o usuário está conectado em um canal de voz
+   */
+  findUserGuild(userId: string): string | null {
+    for (const guild of this.client.guilds.cache.values()) {
+      const member = guild.members.cache.get(userId)
+      if (member?.voice.channel) {
+        return guild.id
+      }
+    }
+    return null
+  }
+
+  /**
+   * Encontra o canal de voz onde o usuário está
+   */
+  findUserVoiceChannel(userId: string): { guildId: string; channel: VoiceChannel } | null {
+    for (const guild of this.client.guilds.cache.values()) {
+      const member = guild.members.cache.get(userId)
+      if (member?.voice.channel) {
+        return { guildId: guild.id, channel: member.voice.channel as VoiceChannel }
+      }
+    }
+    return null
   }
 }
