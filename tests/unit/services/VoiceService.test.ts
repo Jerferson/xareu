@@ -81,7 +81,7 @@ describe('VoiceService - Casinha do Xeréu', () => {
         })
       )
       expect(voiceService.isInCasinhaChannel(guild.id)).toBe(true)
-      expect(voiceService.isFollowingUsers(guild.id)).toBe(false)
+      expect(voiceService.isCollarTaken(guild.id)).toBe(false)
     })
 
     it('deve resetar estado ao acordar com conexão existente', () => {
@@ -97,7 +97,7 @@ describe('VoiceService - Casinha do Xeréu', () => {
       voiceService.handleUserJoinedChannel(guild.id)
 
       // Then: Deve resetar estado e ir para casinha
-      expect(voiceService.isFollowingUsers(guild.id)).toBe(false)
+      expect(voiceService.isCollarTaken(guild.id)).toBe(false)
       expect(voiceService.isInCasinhaChannel(guild.id)).toBe(true)
     })
 
@@ -115,21 +115,22 @@ describe('VoiceService - Casinha do Xeréu', () => {
     })
   })
 
-  describe('Cenário 3: Iniciar modo de seguir', () => {
+  describe('Cenário 3: Iniciar modo de seguir com coleira', () => {
     beforeEach(() => {
       // Setup: Bot está na casinha
       voiceService.goToCasinha(testSetup.guild.id)
     })
 
-    it('deve começar a seguir quando usuário entra na casinha', () => {
+    it('deve começar a seguir quando usuário pega a coleira', () => {
       // Given: Bot na casinha
       expect(voiceService.isInCasinhaChannel(testSetup.guild.id)).toBe(true)
 
-      // When: Ativa modo de seguir
-      voiceService.startFollowingUser(testSetup.guild.id)
+      // When: Usuário pega a coleira
+      voiceService.giveCollar(testSetup.guild.id, 'user-1')
 
-      // Then: Deve marcar que está seguindo
-      expect(voiceService.isFollowingUsers(testSetup.guild.id)).toBe(true)
+      // Then: Deve marcar que coleira foi pega
+      expect(voiceService.isCollarTaken(testSetup.guild.id)).toBe(true)
+      expect(voiceService.hasCollar(testSetup.guild.id, 'user-1')).toBe(true)
       expect(voiceService.isInCasinhaChannel(testSetup.guild.id)).toBe(false)
     })
   })
@@ -150,7 +151,7 @@ describe('VoiceService - Casinha do Xeréu', () => {
       const lastCall = mockVoiceModule.joinVoiceChannel.mock.calls.slice(-1)[0]
       expect(lastCall[0].channelId).toBe(channels.casinhaChannel.id)
       expect(voiceService.isInCasinhaChannel(guild.id)).toBe(true)
-      expect(voiceService.isFollowingUsers(guild.id)).toBe(false)
+      expect(voiceService.isCollarTaken(guild.id)).toBe(false)
     })
   })
 
@@ -227,17 +228,17 @@ describe('VoiceService - Casinha do Xeréu', () => {
   })
 
   describe('Cenário 14: Parar de seguir ao voltar para casinha', () => {
-    it('deve parar de seguir quando voltar para casinha', () => {
-      // Given: Bot está seguindo
+    it('deve liberar coleira quando voltar para casinha', () => {
+      // Given: Bot está seguindo (usuário tem coleira)
       const { guild } = testSetup
-      voiceService.startFollowingUser(guild.id)
-      expect(voiceService.isFollowingUsers(guild.id)).toBe(true)
+      voiceService.giveCollar(guild.id, 'user-1')
+      expect(voiceService.isCollarTaken(guild.id)).toBe(true)
 
-      // When: Volta para casinha
-      voiceService.goToCasinha(guild.id)
+      // When: Volta para casinha (coleira liberada)
+      voiceService.releaseCollar(guild.id, 'user-1')
 
       // Then: Deve parar de seguir
-      expect(voiceService.isFollowingUsers(guild.id)).toBe(false)
+      expect(voiceService.isCollarTaken(guild.id)).toBe(false)
       expect(voiceService.isInCasinhaChannel(guild.id)).toBe(true)
     })
   })

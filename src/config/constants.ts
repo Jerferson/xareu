@@ -17,6 +17,9 @@ export const BOT_CONFIG = {
 
   /** Nome do canal "Casinha do Xeréu" */
   CASINHA_CHANNEL_NAME: 'Casinha do Xeréu',
+
+  /** ID do usuário mestre (pode pegar a coleira a qualquer momento) */
+  MASTER_USER_ID: process.env.MASTER_USER_ID || '',
 } as const
 
 export const AUDIO_CONFIG = {

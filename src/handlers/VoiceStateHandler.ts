@@ -28,83 +28,87 @@ export class VoiceStateHandler {
     }
 
     const guildId = newState.guild.id
+    const userId = newState.member?.user.id || ''
+    const collarHolder = this.voiceService.getCollarHolder(guildId)
 
-    // Usuário saiu do canal
+    // Usuário saiu do canal completamente
     const userLeftChannel = oldState.channel && !newState.channel
     if (userLeftChannel) {
       console.log('   👋 Usuário saiu do canal')
 
+      // Se o usuário que saiu tinha a coleira, tenta transferir para outro usuário
+      if (collarHolder === userId) {
+        console.log('   🎀 Dono da coleira saiu - tentando transferir')
+        this.voiceService.forceReleaseCollar(guildId)
+        
+        // Tenta transferir para outro usuário no canal
+        const newHolder = this.voiceService.transferCollarToRandomUser(guildId)
+        
+        if (!newHolder) {
+          // Ninguém disponível, volta para casinha
+          console.log('   🏠 Nenhum usuário disponível - voltando para casinha')
+          this.voiceService.goToCasinha(guildId)
+        } else {
+          console.log(`   🎲 Coleira transferida para <@${newHolder}>`)
+        }
+        return
+      }
+
       // Verifica se o bot ficou sozinho no canal atual
       setTimeout(() => {
         const isAlone = this.voiceService.isBotAloneInChannel(guildId)
-
-        // Só volta para casinha se o bot realmente ficou sozinho
-        // (Não importa se estava seguindo ou não - o importante é estar sozinho)
         if (isAlone) {
           this.voiceService.handleBotAlone(guildId)
         }
-      }, 2000) // Delay para garantir que o estado foi atualizado
+      }, 2000)
       return
     }
 
     // Usuário entrou ou mudou de canal
     const userJoinedOrMovedChannel = newState.channel && newState.channelId !== oldState.channelId
     if (userJoinedOrMovedChannel) {
-      console.log('   ✅ Usuário entrou no canal')
+      console.log('   ✅ Usuário entrou/mudou de canal')
 
       // Se é a primeira pessoa entrando no servidor E o bot não está conectado, acorda o bot
       const wasServerEmpty = !oldState.channel
       const botNotConnected = !this.voiceService.isBotConnected(guildId)
 
       if (wasServerEmpty && botNotConnected) {
+        console.log('   😴 Xeréu acordando... Indo para a casinha!')
         this.voiceService.handleUserJoinedChannel(guildId)
-        // Não continua - bot fica na casinha esperando
         return
       }
 
-      // Se o bot está seguindo usuários, continua seguindo (não verifica se ficou sozinho)
-      if (this.voiceService.isFollowingUsers(guildId)) {
-        console.log('   🐕 Xeréu está seguindo o usuário...')
+      // Se alguém mudou de canal e o bot ficou sozinho, volta para casinha
+      if (oldState.channel) {
+        setTimeout(() => {
+          if (this.voiceService.isBotAloneInChannel(guildId)) {
+            // Se o dono da coleira mudou de canal, segue ele
+            if (collarHolder === userId) {
+              console.log('   🐕 Seguindo dono da coleira para novo canal')
+              this.voiceService.handleChannelEntry(newState.channel, guildId)
+            } else {
+              this.voiceService.handleBotAlone(guildId)
+            }
+          }
+        }, 2000)
+      }
+
+      // Se este usuário tem a coleira, o bot segue
+      if (collarHolder === userId) {
+        console.log('   🐕 Dono da coleira mudou de canal - seguindo!')
         this.voiceService.handleChannelEntry(newState.channel, guildId)
         return
       }
 
-      // Se usuário mudou de canal E o bot não está seguindo, verifica se o bot ficou sozinho
-      if (oldState.channel && !this.voiceService.isFollowingUsers(guildId)) {
-        setTimeout(() => {
-          // Verifica novamente se ainda não está seguindo (pode ter mudado)
-          if (!this.voiceService.isFollowingUsers(guildId) && this.voiceService.isBotAloneInChannel(guildId)) {
-            this.voiceService.handleBotAlone(guildId)
-          }
-        }, 2000) // Delay maior para garantir que o estado foi atualizado
-      }
-
-      // Se o bot está na casinha, só sai se alguém entrar na própria casinha
-      if (this.voiceService.isInCasinhaChannel(guildId)) {
-        // Se alguém entrou na casinha, o bot começa a seguir
-        if (newState.channel.name === 'Casinha do Xeréu') {
-          this.voiceService.startFollowingUser(guildId)
-          this.voiceService.handleChannelEntry(newState.channel, guildId)
-        } else {
-          console.log('   🏠 Xeréu está na casinha, esperando ser chamado...')
-        }
+      // Se ninguém tem a coleira, o bot fica na casinha esperando
+      if (!collarHolder) {
+        console.log('   🏠 Ninguém tem a coleira - Xeréu aguardando na casinha')
         return
       }
 
-      // Se chegou aqui e há casinha no servidor, não faz nada (modo casinha ativo)
-      const guild = newState.guild
-      const hasCasinha = guild.channels.cache.find(
-        (ch) => ch.name === 'Casinha do Xeréu' && ch.isVoiceBased()
-      )
-
-      if (hasCasinha) {
-        console.log('   🏠 Modo casinha ativo - aguardando usuário entrar na casinha...')
-        return
-      }
-
-      // Apenas executa comportamento legado se NÃO houver casinha no servidor
-      console.log('   ⚠️ Sem casinha - modo legado ativado')
-      this.voiceService.handleChannelEntry(newState.channel, guildId)
+      // Outro usuário se moveu mas não tem a coleira - ignora
+      console.log('   ⏭️  Usuário não tem coleira - ignorando')
       return
     }
 
