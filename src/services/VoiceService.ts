@@ -345,21 +345,6 @@ export class VoiceService {
   // ========== MÉTODOS DE COLEIRA ==========
 
   /**
-   * Verifica se um usuário pode pegar a coleira
-   * @returns true se o usuário pode pegar (é master ou não há dono)
-   */
-  canTakeCollar(guildId: string, userId: string): boolean {
-    const currentHolder = this.collarHolder.get(guildId)
-    const isMaster = userId === BOT_CONFIG.MASTER_USER_ID
-    
-    // Master sempre pode pegar
-    if (isMaster) return true
-    
-    // Pode pegar se não há dono atual
-    return !currentHolder
-  }
-
-  /**
    * Dá a coleira para um usuário
    * @returns true se conseguiu dar a coleira, false se não
    */
@@ -469,19 +454,6 @@ export class VoiceService {
     console.log(`🎲 Coleira transferida aleatoriamente para ${newHolder.user.tag}`)
 
     return newHolder.id
-  }
-
-  /**
-   * Encontra o guildId onde o usuário está conectado em um canal de voz
-   */
-  findUserGuild(userId: string): string | null {
-    for (const guild of this.client.guilds.cache.values()) {
-      const member = guild.members.cache.get(userId)
-      if (member?.voice.channel) {
-        return guild.id
-      }
-    }
-    return null
   }
 
   /**
