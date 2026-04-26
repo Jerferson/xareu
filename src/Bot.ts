@@ -81,7 +81,12 @@ export class DiscordBot {
 
     // Handlers
     this.messageHandler = new MessageHandler(commandService, guildConfigRepo)
-    this.voiceStateHandler = new VoiceStateHandler(this.voiceService, guildConfigRepo, this.eventBus)
+    this.voiceStateHandler = new VoiceStateHandler(
+      this.voiceService,
+      guildConfigRepo,
+      this.eventBus,
+      this.intelligence,
+    )
     this.interactionHandler = new InteractionHandler(commands)
 
     this.registerEvents()

@@ -29,6 +29,8 @@ export const AFFINITY_CONFIG = {
   MIN: 0,
   MAX: 100,
   DEFAULT: 50,
+  /** Afinidade mínima pra Xaréu aceitar a coleira de alguém */
+  LEASH_MIN: 50,
   /** Intervalo (ms) entre interações para contar como "spam" e não ganhar afinidade */
   ANTI_SPAM_WINDOW_MS: 30_000,
 } as const

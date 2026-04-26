@@ -23,6 +23,7 @@
   - `/coleira passar @x` — bot vai até x
   - `/coleira largar` — bot volta pra casinha imediatamente
   - **Auto-coleira**: quando ninguém tem a coleira, o primeiro a entrar na casinha vira o novo dono automaticamente
+  - **Confiança mínima**: Xaréu só obedece quem tem **afinidade ≥ 50** — abaixo disso ele rosna; ganhe confiança com `/petisco` ou conversando com ele
 - 🪃 **Debouncing de 600ms** — trocas rápidas de canal não disparam o erro `IP discovery - socket closed`
 - ♻️ **State recovery** — se o processo reiniciar, o bot infere a partir do canal atual se está na casinha ou seguindo
 - ⏱️ **Cooldown por usuário** — sem spam de áudio

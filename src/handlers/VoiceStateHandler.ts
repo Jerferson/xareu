@@ -1,6 +1,8 @@
 import { VoiceChannel, VoiceState } from 'discord.js'
+import { AFFINITY_CONFIG } from '../config/constants'
 import { EventBus } from '../events/EventBus'
 import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
+import { IntelligenceService } from '../services/IntelligenceService'
 import { VoiceService } from '../services/VoiceService'
 import { logger } from '../utils/logger'
 
@@ -20,6 +22,7 @@ export class VoiceStateHandler {
     private readonly voiceService: VoiceService,
     private readonly guildConfigRepo: GuildConfigRepository,
     private readonly eventBus: EventBus,
+    private readonly intelligence: IntelligenceService,
   ) {}
 
   async handle(oldState: VoiceState, newState: VoiceState): Promise<void> {
@@ -140,10 +143,23 @@ export class VoiceStateHandler {
           )
           return
         }
-        // Auto-coleira: se ninguém tem a coleira, quem entra na casinha vira o novo dono
+        // Auto-coleira: só quem tem afinidade suficiente vira dono ao entrar na casinha
         if (!config.leashOwnerId) {
+          const member = newState.member
+          const user = await this.intelligence.getOrCreateUser({
+            discordId: userId,
+            username: member?.user.username ?? userId,
+            displayName: member?.displayName ?? null,
+          })
+          if (user.affinity < AFFINITY_CONFIG.LEASH_MIN) {
+            logger.info(
+              { userId, affinity: user.affinity, min: AFFINITY_CONFIG.LEASH_MIN },
+              '🚫 branch: user entrou na casinha mas afinidade < mínimo — coleira não passa',
+            )
+            return
+          }
           await this.guildConfigRepo.setLeashOwner(guildId, userId)
-          logger.info({ userId }, '🎀 auto-coleira: novo dono ao entrar na casinha')
+          logger.info({ userId, affinity: user.affinity }, '🎀 auto-coleira: novo dono ao entrar na casinha')
         }
         logger.info({ userId }, '🏠 branch: user entrou na casinha — bot começa a seguir')
         this.eventBus.emit({ type: 'voice.user.entered_casinha', guildId, userId })

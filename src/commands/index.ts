@@ -34,7 +34,7 @@ export function buildCommands(deps: CommandDeps): Map<string, XareuCommand> {
       deps.guildConfigRepo,
     ),
     new PetiscoCommand(deps.intelligence, deps.eventBus),
-    new ColeiraCommand(deps.guildConfigRepo, deps.voiceService),
+    new ColeiraCommand(deps.guildConfigRepo, deps.voiceService, deps.intelligence),
     new StatusCommand(deps.intelligence),
     new ConfigCommand(deps.guildConfigRepo, deps.voiceService),
   ]
