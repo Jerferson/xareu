@@ -8,6 +8,15 @@ import { EmotionEngine } from './EmotionEngine'
 import { IntelligenceService } from './IntelligenceService'
 import { MemoryExtractionService } from './MemoryExtractionService'
 
+export interface AIReferencedMessage {
+  /** Autor da mensagem que está sendo replicada */
+  discordId: string
+  username: string
+  displayName?: string | null
+  /** Conteúdo textual da mensagem replicada */
+  content: string
+}
+
 export interface AIResponseContext {
   discordId: string
   username: string
@@ -15,6 +24,8 @@ export interface AIResponseContext {
   guildId?: string | null
   channelId?: string | null
   message: string
+  /** Se a menção foi feita em reply de outra mensagem, contexto da referenciada */
+  referenced?: AIReferencedMessage | null
 }
 
 export class AIService {
@@ -65,11 +76,15 @@ export class AIService {
       recentInteractions: memory.recentInteractions,
     })
 
+    // Se há mensagem referenciada (reply), resolve memória/emoção do autor original
+    const referencedResolved = ctx.referenced ? await this.resolveReferenced(ctx.referenced) : null
+
     const messages = await this.contextBuilder.build({
       user: memory.user,
       emotion: emotionalContext,
       daysSinceLastInteraction: memory.daysSinceLastInteraction,
       message: ctx.message,
+      referenced: referencedResolved,
     })
 
     const client = getOpenAI()
@@ -104,6 +119,29 @@ export class AIService {
   // ────────────────────────────────────────────────────────────────
   // Helpers
   // ────────────────────────────────────────────────────────────────
+
+  private async resolveReferenced(ref: AIReferencedMessage) {
+    await this.intelligence.getOrCreateUser({
+      discordId: ref.discordId,
+      username: ref.username,
+      displayName: ref.displayName ?? null,
+    })
+    const memory = await this.intelligence.getMemory(ref.discordId)
+    if (!memory) return null
+
+    const emotion = this.emotion.evaluate({
+      affinity: memory.user.affinity,
+      mood: memory.user.mood,
+      daysSinceLastInteraction: memory.daysSinceLastInteraction,
+      recentInteractions: memory.recentInteractions,
+    })
+    return {
+      user: memory.user,
+      emotion,
+      daysSinceLastInteraction: memory.daysSinceLastInteraction,
+      content: ref.content,
+    }
+  }
 
   private async checkRateLimit(discordId: string): Promise<boolean> {
     const key = `xareu:ratelimit:${discordId}`

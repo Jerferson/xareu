@@ -171,18 +171,35 @@ export class CommandService {
     if (!member) return
 
     const cleaned = message.content.replace(new RegExp(`<@!?${message.client.user?.id}>`, 'g'), '').trim()
-    if (!cleaned) return
 
     if ('sendTyping' in message.channel) {
       await message.channel.sendTyping().catch(() => undefined)
     }
+
+    const referenced = await this.resolveReferencedMessage(message)
+    if (referenced) {
+      logger.info(
+        { author: referenced.username, contentPreview: referenced.content.slice(0, 80) },
+        '🔗 reply detectado — incluindo mensagem referenciada no contexto',
+      )
+    }
+
+    // Sem texto E sem reply → nada pra responder, ignora silenciosamente
+    if (!cleaned && !referenced) return
+
+    // Sem texto MAS com reply → o user só quer um comentário sobre a mensagem
+    const userMessage =
+      cleaned ||
+      '(O usuário me marcou sem texto, em reply à mensagem referenciada — ele quer que eu comente sobre ela.)'
+
     const response = await this.aiService.respond({
       discordId: member.id,
       username: member.user.username,
       displayName: member.displayName,
       guildId: message.guild.id,
       channelId: message.channel.id,
-      message: cleaned,
+      message: userMessage,
+      referenced,
     })
     if (!response) return
     await this.safeReply(message, response)
@@ -193,9 +210,36 @@ export class CommandService {
       type: 'mention',
       guildId: message.guild.id,
       channelId: message.channel.id,
-      message: cleaned,
+      message: cleaned || `[reply em ${referenced?.username ?? 'mensagem'}]`,
       response,
     })
+  }
+
+  /**
+   * Se a mensagem é um reply, busca a mensagem referenciada no Discord e
+   * extrai o autor + conteúdo. Ignora replies a mensagens de bots.
+   */
+  private async resolveReferencedMessage(
+    message: Message,
+  ): Promise<{ discordId: string; username: string; displayName: string | null; content: string } | null> {
+    if (!message.reference?.messageId) return null
+    if (!('messages' in message.channel)) return null
+
+    try {
+      const refMsg = await message.channel.messages.fetch(message.reference.messageId)
+      if (refMsg.author.bot) return null
+      const content = refMsg.content?.trim()
+      if (!content) return null
+      return {
+        discordId: refMsg.author.id,
+        username: refMsg.author.username,
+        displayName: refMsg.member?.displayName ?? refMsg.author.displayName ?? null,
+        content,
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'falha ao buscar mensagem referenciada')
+      return null
+    }
   }
 
   private chunkList<T>(items: T[], size: number): T[][] {

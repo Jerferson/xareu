@@ -188,4 +188,68 @@ describe('ContextBuilderService', () => {
 
     expect(messages[messages.length - 1]).toEqual({ role: 'user', content: 'mensagem final' })
   })
+
+  describe('reply (mensagem referenciada)', () => {
+    it('inclui bloco MENSAGEM REFERENCIADA quando há reply', async () => {
+      const { service } = build()
+      const refUser = makeUser({
+        id: 'ref-user',
+        discordId: 'ref-discord',
+        username: 'joseildo',
+        displayName: 'Joseildo',
+        affinity: 70,
+      })
+
+      const messages = await service.build({
+        user: makeUser({ id: 'main-user', discordId: 'main-discord' }),
+        emotion,
+        daysSinceLastInteraction: 0,
+        message: '@xareu o que vc acha?',
+        referenced: {
+          user: refUser,
+          emotion: { ...emotion, relationship: 'amigo' },
+          daysSinceLastInteraction: 1,
+          content: 'amanhã vai ter churrasco em casa',
+        },
+      })
+
+      const content = messages.map((m) => m.content).join('\n')
+      expect(content).toMatch(/MENSAGEM REFERENCIADA/)
+      expect(content).toMatch(/Joseildo/)
+      expect(content).toMatch(/amanhã vai ter churrasco em casa/)
+      expect(content).toMatch(/Direcione sua resposta a Joseildo/)
+    })
+
+    it('OBJETIVO muda quando há reply', async () => {
+      const { service } = build()
+      const messages = await service.build({
+        user: makeUser(),
+        emotion,
+        daysSinceLastInteraction: 0,
+        message: 'oi',
+        referenced: {
+          user: makeUser({ id: 'ref-id', discordId: 'ref-discord', username: 'maria' }),
+          emotion,
+          daysSinceLastInteraction: 0,
+          content: 'algo importante',
+        },
+      })
+
+      const content = messages.map((m) => m.content).join('\n')
+      expect(content).toMatch(/Comente o conteúdo dela/)
+    })
+
+    it('não inclui bloco quando referenced é null', async () => {
+      const { service } = build()
+      const messages = await service.build({
+        user: makeUser(),
+        emotion,
+        daysSinceLastInteraction: 0,
+        message: 'oi',
+      })
+
+      const content = messages.map((m) => m.content).join('\n')
+      expect(content).not.toMatch(/MENSAGEM REFERENCIADA/)
+    })
+  })
 })
