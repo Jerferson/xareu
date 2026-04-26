@@ -22,11 +22,15 @@
   - `/coleira pegar` — bot vai até você na hora
   - `/coleira passar @x` — bot vai até x
   - `/coleira largar` — bot volta pra casinha imediatamente
-  - **Auto-coleira**: quando ninguém tem a coleira, o primeiro a entrar na casinha vira o novo dono automaticamente
-  - **Confiança mínima**: Xaréu só obedece quem tem **afinidade ≥ 50** — abaixo disso ele rosna; ganhe confiança com `/petisco` ou conversando com ele
-- 🐺 **Rosna pra desconhecidos** — quem tem afinidade < 30 escuta `rosnando.mp3` em vez do latido quando o Xaréu entra no canal
+  - **Auto-coleira**: quando ninguém tem a coleira, o primeiro a entrar na casinha com afinidade ≥ 50 vira o novo dono
+  - **Confiança mínima**: Xaréu só aceita coleira de quem tem **afinidade ≥ 50**
+  - **Revalidação contínua**: se a afinidade do dono cair abaixo de 50 (decay temporal), a coleira é anulada automaticamente na próxima movimentação ou ao entrar na casinha — bot volta sozinho pra casinha
+- 🔊 **Sons reativos** (alguém entrando no canal onde o bot já está):
+  - afinidade < 30 → 🐺 `rosnando.mp3` (volume +80%)
+  - afinidade ≥ 30 → 🐕 latido amigável de cumprimento
+  - bot **chegando** num canal novo (seguindo alguém) → sempre latido amigável
 - 🦴 **Mastiga ao receber petisco** — cada `/petisco` toca `mastigando-crocante.mp3` no canal de voz se o bot estiver conectado
-- 🥚 **Novos usuários começam com afinidade 20** — precisam interagir um pouco antes de cair nas graças do Xaréu
+- 🥚 **Novos usuários começam com afinidade 20** — precisam interagir até subir pra ≥ 50 antes de pegar a coleira
 - 🪃 **Debouncing de 600ms** — trocas rápidas de canal não disparam o erro `IP discovery - socket closed`
 - ♻️ **State recovery** — se o processo reiniciar, o bot infere a partir do canal atual se está na casinha ou seguindo
 - ⏱️ **Cooldown por usuário** — sem spam de áudio
@@ -38,6 +42,22 @@
 - 🏷️ **Tags automáticas**: amigavel, ignora, brinca-muito, novato, antigo, carente
 - 🦴 **Petiscos** dão afinidade extra (`/petisco`)
 - 📖 **Histórico** de cada interação salvo no Postgres
+
+### Tabela de afinidade
+
+| Ação | Delta | Cooldown |
+|---|---|---|
+| `/petisco` | +8 | 6h se afinidade ≥ 95 |
+| Menção no servidor (responde com IA) | +3 | rate limit 10/min |
+| DM longa (vira conversa com IA) | +3 | rate limit 10/min |
+| Áudio tocado | +1 | cooldown configurável |
+| Entrar em canal de voz | +1 | — |
+| Decay diário (passivo) | −2/dia | aplicado on-demand |
+
+**Thresholds**:
+- Default de novos usuários: **20**
+- Afinidade < **30** → Xaréu rosna ao você entrar no canal dele
+- Afinidade < **50** → não consegue pegar a coleira; se já era dono, perde na próxima ação
 
 ### IA (OpenAI)
 - 💬 Responde **menções no servidor** com personalidade canina
