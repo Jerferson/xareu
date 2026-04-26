@@ -102,6 +102,18 @@ describe('IntelligenceService', () => {
     expect(calls).toContain(8)
   })
 
+  it('petisco emitido no eventBus NÃO duplica a afinidade (regressão #petisco-dup)', async () => {
+    const { service, getUser } = buildHarness(makeUser({ affinity: 50 }))
+    // Simula um emit do eventBus com tipo 'petisco.given' — ninguém deveria escutar
+    // pra evitar dupla contabilização. Se algum listener for adicionado de volta,
+    // este teste falha (afinidade > 58).
+    const eventBusInstance = (service as unknown as { eventBus: { emit: (e: unknown) => void } }).eventBus
+    eventBusInstance.emit({ type: 'petisco.given', guildId: 'g', userId: 'discord-1' })
+    await service.recordInteraction({ discordId: 'discord-1', username: 'fulano', type: 'petisco' })
+    await new Promise((r) => setImmediate(r))
+    expect(getUser()?.affinity).toBe(58) // 50 + 8 (não 50 + 16)
+  })
+
   it('ignored diminui afinidade', async () => {
     const { service, userRepo } = buildHarness(makeUser({ affinity: 50 }))
     await service.recordInteraction({ discordId: 'discord-1', username: 'fulano', type: 'ignored' })

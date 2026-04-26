@@ -170,6 +170,13 @@ export class IntelligenceService {
     return b.every((t) => set.has(t))
   }
 
+  /**
+   * Eventos do EventBus que viram interações automaticamente.
+   * IMPORTANTE: só fontes que NÃO chamam `recordInteraction` direto.
+   * `audio.played` e `petisco.given` foram removidos porque já são registrados
+   * pelos commands (PlayCommand, PetiscoCommand, CommandService.tryPlayAudioFromDM)
+   * — escutar aqui causaria duplicação da afinidade.
+   */
   private registerEventHandlers(): void {
     this.eventBus.on('voice.user.joined', async (e) => {
       const member = await this.userKey(e)
@@ -179,25 +186,6 @@ export class IntelligenceService {
         type: 'voice_join',
         guildId: e.guildId,
         channelId: e.channelId,
-      })
-    })
-    this.eventBus.on('audio.played', async (e) => {
-      const member = await this.userKey(e)
-      if (!member) return
-      await this.recordInteraction({
-        ...member,
-        type: 'audio_played',
-        guildId: e.guildId,
-        message: e.audioName,
-      })
-    })
-    this.eventBus.on('petisco.given', async (e) => {
-      const member = await this.userKey(e)
-      if (!member) return
-      await this.recordInteraction({
-        ...member,
-        type: 'petisco',
-        guildId: e.guildId,
       })
     })
   }
