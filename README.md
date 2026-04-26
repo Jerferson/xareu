@@ -64,7 +64,7 @@
 - 💌 **DMs longas** entram no chat com IA, curtinhas viram comando de áudio
 - 🧩 Cada prompt inclui afinidade, humor, tags, **resumo do usuário e fatos memorizados**
 - ⏳ **Rate limit por usuário** via Redis
-- 🧠 **Memória semântica** — após cada conversa relevante, o Xaréu extrai fatos ("gosta de X", "trabalha com Y") e mantém um resumo evolutivo de quem você é
+- 🧠 **Memória semântica em uma chamada** — a IA retorna `{ reply, insight }` no mesmo JSON. Sem chamada extra de extração. Captura **fatos factuais** (gostos, profissão, sonhos, lugares) E **traços de comunicação** (sarcasmo, gírias, jeito de provocar). Resumo evolutivo do user é atualizado incrementalmente (nunca zera quando IA omite o campo)
 - 🎭 **EmotionEngine** — calcula relação (desconhecido / conhecido / amigo / melhor amigo), intensidade emocional, estilo de resposta e energia antes de chamar a IA — o tom muda de acordo
 
 ### Comandos
@@ -75,7 +75,7 @@
 | `/petisco` | Ganha afinidade + toca som de mastigando no canal de voz |
 | `/coleira pegar\|passar\|largar\|quem` | Gerencia o dono — `pegar`/`passar` movem o bot na hora; `largar` volta pra casinha |
 | `/status` | Mostra sua relação com o Xaréu (afinidade, humor, fatos, nível: desconhecido/conhecido/amigo/melhor amigo) |
-| `/config casinha\|volume\|cooldown\|ai\|ver` | Configurações (admin) |
+| `/config casinha\|volume\|cooldown\|ai\|humor\|ver` | Configurações (admin). `humor 0-10` calibra o tom (suave / moderado / ácido / insano) |
 
 ### Conversação inteligente
 - **Mencionar `@Xaréu`** em canal de texto → resposta contextual usando memória + emoção
@@ -87,6 +87,11 @@
   - 🤝 amigo → provoca levemente
   - 👋 conhecido → humor seguro, ainda mede
   - 🚪 desconhecido → seco, sarcasmo curto sem efusividade
+- **Nível de humor por servidor** (`/config humor 0-10`) — perfis distintos no prompt:
+  - 0-3 → **suave**: amigável, fofo, sem sarcasmo
+  - 4-6 → **moderado**: brincalhão, ironia leve (default)
+  - 7-8 → **ácido**: sarcástico, debochado, irônico
+  - 9-10 → **insano**: drama teatral, ironia destrutiva, deboche absurdo
 
 ---
 
@@ -243,17 +248,23 @@ MessageHandler → CommandService.processMention/processDM
 AIService.respond
   ├─ IntelligenceService.getMemory (afinidade, humor, dias, tags)
   ├─ EmotionEngine.evaluate → { relationship, intensity, style, energy, hints }
-  ├─ ContextBuilderService.build → prompt completo (personalidade + estado + facts + summary + histórico)
-  └─ OpenAI chat.completions
+  ├─ QuestionService.resolveNextQuestion → pergunta de onboarding (se elegível)
+  ├─ guildConfigRepo.getOrCreate → humorLevel da guilda (DM = 5)
+  ├─ ContextBuilderService.build
+  │    ├─ PERSONALITY_BY_PROFILE[humorProfile] (suave/moderado/ácido/insano)
+  │    ├─ estado, memória (summary + facts), histórico, hints
+  │    └─ instrução de saída JSON: { reply, insight? }
+  └─ OpenAI chat.completions com response_format: json_object
   ↓
-Resposta enviada ao usuário
-  ↓ (em background, fire-and-forget)
-MemoryExtractionService.process
-  ├─ heurística shouldExtract (tamanho + palavras de auto-revelação)
-  ├─ OpenAI com response_format json_object → { new_facts, updated_summary, confidence }
-  ├─ validação Zod
-  └─ persiste em UserFact (dedup) + UserMemory (summary incremental)
+Parseia { reply, insight } com Zod
+  ├─ reply → enviado ao usuário
+  └─ insight (se != null) → MemoryExtractionService.persistInline (background)
+       ├─ dedup contra fatos existentes
+       ├─ persist UserFact[] + UserMemory.summary (preserva summary se IA omitir)
+       └─ marca pergunta pendente mais recente como respondida
 ```
+
+**Mudança chave**: tudo em **uma única chamada OpenAI** — resposta + extração de insight no mesmo JSON. ~50% menos custo que arquitetura anterior (que fazia 2 chamadas em série) e insight perfeitamente alinhado ao contexto da resposta.
 
 **EmotionEngine** (puro, sem IA): mapeia afinidade → relação:
 - 0–19 → desconhecido (estilo seco, energia baixa)
@@ -305,7 +316,10 @@ Implementado:
 - [x] **ContextBuilderService** (prompt rico com facts + summary + histórico + emoção)
 - [x] **Respostas em reply** — Xaréu lê a mensagem original e responde direcionado ao autor
 - [x] **Autocomplete fuzzy no `/play`** — substring em qualquer posição
-- [x] **Onboarding por perguntas** — Xaréu pergunta sobre o user até conhecer bem (15 perguntas, 1 por interação)
+- [x] **Onboarding por perguntas** — 27 perguntas (factuais e zoeiras) com TTL de 24h e marcação de respondida via extração
+- [x] **Single-call JSON** — resposta + insight numa só chamada OpenAI (50% menos custo)
+- [x] **Nível de humor configurável** (`/config humor 0-10`) — 4 perfis distintos no prompt
+- [x] **Extração de traços de comunicação** — IA captura sarcasmo, gírias, padrões de interação como facts
 - [x] Rate limit (Redis)
 - [x] Slash commands
 - [x] Sistema de coleira (com revalidação contínua de afinidade)

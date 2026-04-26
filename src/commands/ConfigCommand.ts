@@ -53,6 +53,14 @@ export class ConfigCommand implements XareuCommand {
         .setDescription('Liga ou desliga as respostas com IA neste servidor')
         .addBooleanOption((opt) => opt.setName('ativo').setDescription('true / false').setRequired(true)),
     )
+    .addSubcommand((sc) =>
+      sc
+        .setName('humor')
+        .setDescription('Nível de zoeira do Xaréu (0=comportado, 5=moderado, 10=insano)')
+        .addIntegerOption((opt) =>
+          opt.setName('nivel').setDescription('0 a 10').setRequired(true).setMinValue(0).setMaxValue(10),
+        ),
+    )
     .addSubcommand((sc) => sc.setName('ver').setDescription('Mostra a configuração atual'))
 
   constructor(
@@ -75,6 +83,7 @@ export class ConfigCommand implements XareuCommand {
           `🔊 Volume: ${cfg.volume}`,
           `⏱️ Cooldown: ${cfg.audioCooldown}s`,
           `🧠 IA: ${cfg.aiEnabled ? 'ativada' : 'desativada'}`,
+          `😈 Humor: ${cfg.humorLevel}/10`,
           cfg.leashOwnerId ? `🎀 Coleira: <@${cfg.leashOwnerId}>` : '🎀 Coleira: livre',
         ].join('\n'),
         flags: MessageFlags.Ephemeral,
@@ -112,6 +121,18 @@ export class ConfigCommand implements XareuCommand {
       await this.guildConfigRepo.update(interaction.guildId, { aiEnabled: ativo })
       await interaction.reply({
         content: `🧠 IA ${ativo ? 'ativada' : 'desativada'}.`,
+        flags: MessageFlags.Ephemeral,
+      })
+      return
+    }
+
+    if (sub === 'humor') {
+      const nivel = interaction.options.getInteger('nivel', true)
+      await this.guildConfigRepo.update(interaction.guildId, { humorLevel: nivel })
+      const labels = ['comportado', 'leve', 'moderado', 'pesado', 'insano']
+      const idx = nivel <= 2 ? 0 : nivel <= 4 ? 1 : nivel <= 6 ? 2 : nivel <= 8 ? 3 : 4
+      await interaction.reply({
+        content: `😈 Humor ajustado pra ${nivel}/10 (${labels[idx]}).`,
         flags: MessageFlags.Ephemeral,
       })
       return

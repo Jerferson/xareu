@@ -1,14 +1,21 @@
 import Redis from 'ioredis'
+import { z } from 'zod'
 import { Mood } from '../config/constants'
 import { env } from '../config/env'
 import { getOpenAI, isAIEnabled } from '../infrastructure/openai'
+import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
 import { UserFactRepository } from '../repositories/UserFactRepository'
 import { logger } from '../utils/logger'
 import { ContextBuilderService } from './ContextBuilderService'
 import { EmotionEngine } from './EmotionEngine'
 import { IntelligenceService } from './IntelligenceService'
-import { MemoryExtractionService } from './MemoryExtractionService'
+import { MemoryExtractionService, inlineInsightSchema } from './MemoryExtractionService'
 import { QuestionService } from './QuestionService'
+
+const aiResponseSchema = z.object({
+  reply: z.string().min(1).max(2000),
+  insight: inlineInsightSchema.nullable().optional(),
+})
 
 export interface AIReferencedMessage {
   /** Autor da mensagem que está sendo replicada */
@@ -41,6 +48,7 @@ export class AIService {
     private readonly memoryExtraction: MemoryExtractionService,
     private readonly questionService: QuestionService,
     private readonly factRepo: UserFactRepository,
+    private readonly guildConfigRepo: GuildConfigRepository,
   ) {
     this.rateLimitPerMinute = env.AI_RATE_LIMIT_PER_MINUTE
   }
@@ -91,6 +99,10 @@ export class AIService {
       affinity: memory.user.affinity,
     })
 
+    // Busca humorLevel da guilda (DM usa default 5)
+    const guildConfig = ctx.guildId ? await this.guildConfigRepo.getOrCreate(ctx.guildId) : null
+    const humorLevel = guildConfig?.humorLevel ?? 5
+
     const messages = await this.contextBuilder.build({
       user: memory.user,
       emotion: emotionalContext,
@@ -98,35 +110,58 @@ export class AIService {
       message: ctx.message,
       referenced: referencedResolved,
       pendingQuestion: nextQuestion?.question ?? null,
+      humorLevel,
     })
 
     const client = getOpenAI()
     if (!client) return this.fallbackResponse(memory.user.mood as Mood | string)
 
-    let text: string | null = null
+    let raw: string | null = null
     try {
       const completion = await client.chat.completions.create({
         model: env.OPENAI_MODEL,
         max_tokens: env.OPENAI_MAX_TOKENS,
         temperature: env.OPENAI_TEMPERATURE,
+        response_format: { type: 'json_object' },
         messages,
       })
-      text = completion.choices[0]?.message?.content?.trim() ?? null
+      raw = completion.choices[0]?.message?.content?.trim() ?? null
     } catch (err) {
       logger.error({ err, discordId: ctx.discordId }, 'Falha na chamada OpenAI')
       return this.fallbackResponse(memory.user.mood as Mood | string)
     }
 
-    const response = text ?? this.fallbackResponse(memory.user.mood as Mood | string)
+    if (!raw) return this.fallbackResponse(memory.user.mood as Mood | string)
 
-    // Fire-and-forget: extrai memória em background sem bloquear a resposta
-    void this.memoryExtraction.process({
-      discordId: ctx.discordId,
-      message: ctx.message,
-      response,
-    })
+    // Tenta parsear JSON estruturado { reply, insight? }
+    const parsed = this.tryParseStructured(raw)
+    const response = parsed?.reply ?? raw // fallback: usa o texto cru como reply
+
+    // Persiste insight inline se a IA retornou algum
+    if (parsed?.insight && parsed.insight.new_facts.length > 0) {
+      void this.memoryExtraction.persistInline(ctx.discordId, parsed.insight)
+    }
 
     return response
+  }
+
+  /**
+   * Parseia a saída da IA esperando { reply, insight? }. Retorna null
+   * se a saída é puro texto (fallback gracioso — chamamos como reply mesmo).
+   */
+  private tryParseStructured(raw: string): z.infer<typeof aiResponseSchema> | null {
+    try {
+      const json = JSON.parse(raw)
+      const result = aiResponseSchema.safeParse(json)
+      if (!result.success) {
+        logger.warn({ issues: result.error.issues }, 'AI response JSON inválido — usando texto cru')
+        return null
+      }
+      return result.data
+    } catch {
+      logger.warn({ rawPreview: raw.slice(0, 100) }, 'AI response não é JSON — usando texto cru')
+      return null
+    }
   }
 
   // ────────────────────────────────────────────────────────────────

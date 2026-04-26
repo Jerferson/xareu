@@ -6,6 +6,7 @@ export interface GuildConfigUpdate {
   volume?: number
   audioCooldown?: number
   aiEnabled?: boolean
+  humorLevel?: number
   leashOwnerId?: string | null
   language?: string
 }

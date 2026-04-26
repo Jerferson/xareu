@@ -94,6 +94,7 @@ export class DiscordBot {
       memoryExtraction,
       questionService,
       factRepo,
+      guildConfigRepo,
     )
     const commandService = new CommandService(this.intelligence, aiService)
 

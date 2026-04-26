@@ -97,6 +97,7 @@ model GuildConfig {
   volume        Float    @default(1.0)
   audioCooldown Int      @default(5) @map("audio_cooldown")
   aiEnabled     Boolean  @default(true) @map("ai_enabled")
+  humorLevel    Int      @default(5) @map("humor_level")
   leashOwnerId  String?  @map("leash_owner_id")
   language      String   @default("pt-BR")
   createdAt     DateTime @default(now()) @map("created_at")

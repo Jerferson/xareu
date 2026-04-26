@@ -15,6 +15,18 @@ const extractionSchema = z.object({
 })
 
 /**
+ * Insight inline retornado pela IA junto da resposta principal.
+ * `summary_update` é opcional — pode ser omitido quando não há mudança.
+ */
+export const inlineInsightSchema = z.object({
+  new_facts: z.array(z.string().min(2).max(200)).max(8).default([]),
+  summary_update: z.string().max(800).optional(),
+  confidence: z.number().min(0).max(1).default(0.7),
+})
+
+export type InlineInsight = z.infer<typeof inlineInsightSchema>
+
+/**
  * Padrões de auto-revelação. Cada padrão é uma regex com `\b` pra casar
  * palavras inteiras — assim "eu também gosto" cai em "gosto", e a gente
  * não pega "gostoso" por engano.
@@ -148,6 +160,41 @@ export class MemoryExtractionService {
       )
     } catch (err) {
       logger.error({ err, discordId: ctx.discordId }, 'falha ao extrair memória')
+    }
+  }
+
+  /**
+   * Persiste um insight extraído inline pela própria chamada de IA da resposta
+   * (sem fazer outra chamada OpenAI). Faz dedup contra fatos existentes e
+   * marca a última pergunta pendente como respondida quando há fato novo.
+   */
+  async persistInline(discordId: string, insight: InlineInsight): Promise<void> {
+    try {
+      const user = await this.userRepo.findByDiscordId(discordId)
+      if (!user) return
+      const knownFacts = (await this.factRepo.findByUserId(user.id, 100)).map((f) => f.fact)
+      const currentSummary = (await this.memoryRepo.findByUserId(user.id))?.summary ?? ''
+      // Só sobrescreve summary se a IA retornou algo NÃO-VAZIO. Caso contrário
+      // mantém o que já tinha (evita zerar memória quando a IA omite o campo).
+      const newSummary = insight.summary_update?.trim()
+      const finalSummary = newSummary && newSummary.length > 0 ? newSummary : currentSummary
+      await this.persist(
+        user.id,
+        {
+          new_facts: insight.new_facts,
+          updated_summary: finalSummary,
+          confidence: insight.confidence,
+        },
+        knownFacts,
+      )
+      if (insight.new_facts.length > 0) {
+        logger.info(
+          { discordId, newFacts: insight.new_facts.length, confidence: insight.confidence },
+          '🧠 inline insight persisted',
+        )
+      }
+    } catch (err) {
+      logger.error({ err, discordId }, 'falha ao persistir inline insight')
     }
   }
 
