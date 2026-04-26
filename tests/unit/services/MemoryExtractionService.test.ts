@@ -4,7 +4,7 @@ describe('MemoryExtractionService', () => {
   function buildService(): MemoryExtractionService {
     // Repos não são tocados pelos testes de heurística — passamos stubs vazios
     const stub = {} as never
-    return new MemoryExtractionService(stub, stub, stub, stub)
+    return new MemoryExtractionService(stub, stub, stub, stub, stub)
   }
 
   describe('shouldExtract', () => {

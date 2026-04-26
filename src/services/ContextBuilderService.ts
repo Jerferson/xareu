@@ -26,6 +26,8 @@ export interface ContextBuildInput {
   message: string
   /** Quando a mensagem atual é um reply, contexto do autor original */
   referenced?: ReferencedAuthorInput | null
+  /** Pergunta opcional pra anexar ao final da resposta (onboarding) */
+  pendingQuestion?: string | null
 }
 
 const PERSONALITY_BLOCK = `Você é Xaréu, um cachorro virtual do Discord (vira-lata multicultural, brincalhão, levemente sarcástico, carente de atenção).
@@ -105,9 +107,15 @@ export class ContextBuilderService {
         ? input.emotion.hints.map((h) => `  - ${h}`).join('\n')
         : '  - sem orientação extra'
 
-    const objective = input.referenced
+    const baseObjective = input.referenced
       ? 'OBJETIVO: a mensagem atual é um reply à MENSAGEM REFERENCIADA abaixo. Comente o conteúdo dela direcionando-se ao autor original (use o nome dele). Use o que sabe sobre os dois pra dar uma resposta engraçada/relevante. Máximo 2 frases caninas. Nunca diga que é uma IA.'
       : 'OBJETIVO: responder à próxima mensagem do usuário em 1-2 frases caninas, coerente com o estado acima. Nunca diga que é uma IA.'
+
+    const questionAddon = input.pendingQuestion
+      ? `\n\nDEPOIS de responder normalmente, ANEXE no final uma pergunta natural pra conhecer melhor o usuário. Use EXATAMENTE essa pergunta (ou bem próxima): "${input.pendingQuestion}". Coloque uma frase curta de transição antes ("ah, e me conta:" / "pra te conhecer melhor:" / "ó, manda ver:"). NÃO ignore essa instrução — quanto mais info eu tiver, mais preciso fica.`
+      : ''
+
+    const objective = baseObjective + questionAddon
 
     return `ESTADO ATUAL:
 - humor: ${input.user.mood}

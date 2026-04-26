@@ -2,11 +2,13 @@ import Redis from 'ioredis'
 import { Mood } from '../config/constants'
 import { env } from '../config/env'
 import { getOpenAI, isAIEnabled } from '../infrastructure/openai'
+import { UserFactRepository } from '../repositories/UserFactRepository'
 import { logger } from '../utils/logger'
 import { ContextBuilderService } from './ContextBuilderService'
 import { EmotionEngine } from './EmotionEngine'
 import { IntelligenceService } from './IntelligenceService'
 import { MemoryExtractionService } from './MemoryExtractionService'
+import { QuestionService } from './QuestionService'
 
 export interface AIReferencedMessage {
   /** Autor da mensagem que está sendo replicada */
@@ -37,6 +39,8 @@ export class AIService {
     private readonly emotion: EmotionEngine,
     private readonly contextBuilder: ContextBuilderService,
     private readonly memoryExtraction: MemoryExtractionService,
+    private readonly questionService: QuestionService,
+    private readonly factRepo: UserFactRepository,
   ) {
     this.rateLimitPerMinute = env.AI_RATE_LIMIT_PER_MINUTE
   }
@@ -79,12 +83,21 @@ export class AIService {
     // Se há mensagem referenciada (reply), resolve memória/emoção do autor original
     const referencedResolved = ctx.referenced ? await this.resolveReferenced(ctx.referenced) : null
 
+    // Decide se anexa uma pergunta de onboarding pra conhecer o user
+    const factsCount = (await this.factRepo.findByUserId(memory.user.id, 100)).length
+    const nextQuestion = await this.questionService.resolveNextQuestion({
+      userId: memory.user.id,
+      factsCount,
+      affinity: memory.user.affinity,
+    })
+
     const messages = await this.contextBuilder.build({
       user: memory.user,
       emotion: emotionalContext,
       daysSinceLastInteraction: memory.daysSinceLastInteraction,
       message: ctx.message,
       referenced: referencedResolved,
+      pendingQuestion: nextQuestion?.question ?? null,
     })
 
     const client = getOpenAI()

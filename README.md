@@ -81,6 +81,7 @@
 - **Mencionar `@Xaréu`** em canal de texto → resposta contextual usando memória + emoção
 - **Mencionar `@Xaréu` em reply** de outra mensagem → o bot lê a mensagem original, carrega memória do autor original, e direciona a resposta a essa pessoa (mesmo se você só mandar a menção sem texto adicional)
 - **DM** longa → conversa com IA; DM curta → tentativa de tocar áudio
+- **Onboarding por curiosidade** — quando o Xaréu ainda não conhece bem o usuário (poucos fatos OU afinidade < 50), ele anexa uma pergunta no final da resposta (15 perguntas pré-definidas: nome, cidade, profissão, time, música, comida, jogo, hobby etc). Quando uma extração de memória produz fatos novos, a pergunta pendente mais recente é marcada como respondida (e nunca é refeita). Pergunta sem resposta volta ao pool após **24h** — Xaréu insiste sem ser chato.
 
 ---
 
@@ -299,6 +300,7 @@ Implementado:
 - [x] **ContextBuilderService** (prompt rico com facts + summary + histórico + emoção)
 - [x] **Respostas em reply** — Xaréu lê a mensagem original e responde direcionado ao autor
 - [x] **Autocomplete fuzzy no `/play`** — substring em qualquer posição
+- [x] **Onboarding por perguntas** — Xaréu pergunta sobre o user até conhecer bem (15 perguntas, 1 por interação)
 - [x] Rate limit (Redis)
 - [x] Slash commands
 - [x] Sistema de coleira (com revalidação contínua de afinidade)

@@ -11,6 +11,7 @@ import { GuildConfigRepository } from './repositories/GuildConfigRepository'
 import { InteractionRepository } from './repositories/InteractionRepository'
 import { UserFactRepository } from './repositories/UserFactRepository'
 import { UserMemoryRepository } from './repositories/UserMemoryRepository'
+import { UserQuestionRepository } from './repositories/UserQuestionRepository'
 import { UserRepository } from './repositories/UserRepository'
 import { AIService } from './services/AIService'
 import { AudioQueueService } from './services/AudioQueueService'
@@ -21,6 +22,7 @@ import { EmotionEngine } from './services/EmotionEngine'
 import { IntelligenceService } from './services/IntelligenceService'
 import { MemoryExtractionService } from './services/MemoryExtractionService'
 import { MoodService } from './services/MoodService'
+import { QuestionService } from './services/QuestionService'
 import { VoiceService } from './services/VoiceService'
 import { logger } from './utils/logger'
 
@@ -55,6 +57,7 @@ export class DiscordBot {
     const guildConfigRepo = new GuildConfigRepository(prisma)
     const memoryRepo = new UserMemoryRepository(prisma)
     const factRepo = new UserFactRepository(prisma)
+    const questionRepo = new UserQuestionRepository(prisma)
 
     // Event bus
     this.eventBus = new EventBus()
@@ -75,8 +78,23 @@ export class DiscordBot {
 
     const emotionEngine = new EmotionEngine()
     const contextBuilder = new ContextBuilderService(memoryRepo, factRepo, interactionRepo)
-    const memoryExtraction = new MemoryExtractionService(userRepo, memoryRepo, factRepo, interactionRepo)
-    const aiService = new AIService(redis, this.intelligence, emotionEngine, contextBuilder, memoryExtraction)
+    const memoryExtraction = new MemoryExtractionService(
+      userRepo,
+      memoryRepo,
+      factRepo,
+      interactionRepo,
+      questionRepo,
+    )
+    const questionService = new QuestionService(questionRepo)
+    const aiService = new AIService(
+      redis,
+      this.intelligence,
+      emotionEngine,
+      contextBuilder,
+      memoryExtraction,
+      questionService,
+      factRepo,
+    )
     const commandService = new CommandService(
       audioService,
       audioQueue,

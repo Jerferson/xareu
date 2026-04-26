@@ -23,10 +23,25 @@ model User {
   interactions    Interaction[]
   memory          UserMemory?
   facts           UserFact[]
+  questionsAsked  UserQuestion[]
 
   @@map("users")
   @@index([discordId])
   @@index([lastInteraction])
+}
+
+model UserQuestion {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  questionKey String    @map("question_key")
+  askedAt     DateTime  @default(now()) @map("asked_at")
+  answeredAt  DateTime? @map("answered_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionKey])
+  @@map("user_questions")
+  @@index([userId])
 }
 
 model UserMemory {

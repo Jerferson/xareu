@@ -4,6 +4,7 @@ import { getOpenAI, isAIEnabled } from '../infrastructure/openai'
 import { InteractionRepository } from '../repositories/InteractionRepository'
 import { UserFactRepository } from '../repositories/UserFactRepository'
 import { UserMemoryRepository } from '../repositories/UserMemoryRepository'
+import { UserQuestionRepository } from '../repositories/UserQuestionRepository'
 import { UserRepository } from '../repositories/UserRepository'
 import { logger } from '../utils/logger'
 
@@ -69,6 +70,7 @@ export class MemoryExtractionService {
     private readonly memoryRepo: UserMemoryRepository,
     private readonly factRepo: UserFactRepository,
     private readonly interactionRepo: InteractionRepository,
+    private readonly questionRepo: UserQuestionRepository,
   ) {}
 
   /**
@@ -166,5 +168,17 @@ export class MemoryExtractionService {
       ),
       this.memoryRepo.upsert(userId, extraction.updated_summary),
     ])
+
+    // Heurística: se a extração produziu fatos novos, considera que a
+    // pergunta pendente mais recente foi respondida.
+    if (newOnes.length > 0) {
+      const answered = await this.questionRepo.markLatestUnansweredAsAnswered(userId)
+      if (answered) {
+        logger.info(
+          { userId, questionKey: answered.questionKey },
+          '✅ pergunta marcada como respondida (fato novo extraído)',
+        )
+      }
+    }
   }
 }
