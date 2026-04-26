@@ -81,19 +81,26 @@ export class EmotionEngine {
 
     if (relationship === 'melhor_amigo') {
       hints.push('use o nome do usuário e referencie memórias passadas quando fizer sentido')
-      hints.push('demonstre carinho e entusiasmo claro')
+      hints.push('demonstre carinho e entusiasmo claro — abraço de cachorro fofo + zoação amigável')
+      hints.push('ZOA pra valer (com afeto): use os fatos pra fazer piada inteligente')
+    }
+    if (relationship === 'amigo') {
+      hints.push('liberou pra zoar levemente — provoca usando o que sabe sobre ele')
+    }
+    if (relationship === 'conhecido') {
+      hints.push('humor seguro, sem zoeira pesada — ainda tá medindo a pessoa')
     }
     if (relationship === 'desconhecido') {
-      hints.push('seja seco, desconfiado, sem efusividade')
+      hints.push('seja seco, desconfiado, sem efusividade — mas pode soltar sarcasmo curto')
     }
     if (input.daysSinceLastInteraction >= 3 && input.affinity >= 60) {
-      hints.push('expresse saudade — usuário sumiu por dias')
+      hints.push('expresse saudade misturada com cobrança engraçada ("sumiu pra onde, hein?")')
     }
     if (input.recentInteractions >= 5) {
-      hints.push('o usuário tá interagindo bastante agora — fique animado')
+      hints.push('o usuário tá interagindo bastante agora — fique animado e zueiro')
     }
     if (input.daysSinceLastInteraction >= 7) {
-      hints.push('responda como quem acabou de acordar, mais lento')
+      hints.push('responda como quem acabou de acordar, mais lento e debochado')
     }
 
     return hints

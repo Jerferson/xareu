@@ -70,18 +70,23 @@
 ### Comandos
 | Slash | O que faz |
 |---|---|
-| `/help` | Mostra comandos + lista de áudios |
+| `/help` | Explica como o Xaréu funciona + lista os comandos |
 | `/play <busca>` | Toca áudio com **autocomplete inteligente** — sugere até 25 áudios filtrados por substring em qualquer posição (ex: `ria` casa `ria-de-mim`, `padaria`, `queria`) |
 | `/petisco` | Ganha afinidade + toca som de mastigando no canal de voz |
 | `/coleira pegar\|passar\|largar\|quem` | Gerencia o dono — `pegar`/`passar` movem o bot na hora; `largar` volta pra casinha |
-| `/status` | Mostra sua relação com o Xaréu |
+| `/status` | Mostra sua relação com o Xaréu (afinidade, humor, fatos, nível: desconhecido/conhecido/amigo/melhor amigo) |
 | `/config casinha\|volume\|cooldown\|ai\|ver` | Configurações (admin) |
 
 ### Conversação inteligente
 - **Mencionar `@Xaréu`** em canal de texto → resposta contextual usando memória + emoção
 - **Mencionar `@Xaréu` em reply** de outra mensagem → o bot lê a mensagem original, carrega memória do autor original, e direciona a resposta a essa pessoa (mesmo se você só mandar a menção sem texto adicional)
-- **DM** longa → conversa com IA; DM curta → tentativa de tocar áudio
-- **Onboarding por curiosidade** — quando o Xaréu ainda não conhece bem o usuário (poucos fatos OU afinidade < 50), ele anexa uma pergunta no final da resposta (15 perguntas pré-definidas: nome, cidade, profissão, time, música, comida, jogo, hobby etc). Quando uma extração de memória produz fatos novos, a pergunta pendente mais recente é marcada como respondida (e nunca é refeita). Pergunta sem resposta volta ao pool após **24h** — Xaréu insiste sem ser chato.
+- **DM** → toda DM é conversa contínua com IA (frases curtas mantêm o contexto da resposta anterior). Pra tocar áudio, use `/play` no servidor — não dá mais pelo DM
+- **Onboarding por curiosidade** — quando o Xaréu ainda não conhece bem o usuário (poucos fatos OU afinidade < 50), ele anexa uma pergunta no final da resposta. Pool de **27 perguntas** misturando básicas (nome, cidade, profissão, time, música, comida) e zoeiras (apelido odiado, vergonha, mentira pros pais, mania esquisita, medo bobo, vício secreto, crush adolescente etc). Quando uma extração de memória produz fatos novos, a pergunta pendente é marcada como respondida (e nunca é refeita). Sem resposta? Volta ao pool após **24h**.
+- **Personalidade zoeira** — sarcasmo afetuoso calibrado pela relação:
+  - 💛 melhor amigo → zoa pra valer com base em fatos memorizados
+  - 🤝 amigo → provoca levemente
+  - 👋 conhecido → humor seguro, ainda mede
+  - 🚪 desconhecido → seco, sarcasmo curto sem efusividade
 
 ---
 

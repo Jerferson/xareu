@@ -95,20 +95,14 @@ export class DiscordBot {
       questionService,
       factRepo,
     )
-    const commandService = new CommandService(
-      audioService,
-      audioQueue,
-      this.voiceService,
-      this.intelligence,
-      aiService,
-      guildConfigRepo,
-    )
+    const commandService = new CommandService(this.intelligence, aiService)
 
     const commands = buildCommands({
       audioService,
       audioQueue,
       voiceService: this.voiceService,
       intelligence: this.intelligence,
+      emotionEngine,
       guildConfigRepo,
       aiService,
       eventBus: this.eventBus,

@@ -2,6 +2,7 @@ import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
 import { AIService } from '../services/AIService'
 import { AudioQueueService } from '../services/AudioQueueService'
 import { AudioService } from '../services/AudioService'
+import { EmotionEngine } from '../services/EmotionEngine'
 import { IntelligenceService } from '../services/IntelligenceService'
 import { VoiceService } from '../services/VoiceService'
 import { EventBus } from '../events/EventBus'
@@ -18,6 +19,7 @@ export interface CommandDeps {
   audioQueue: AudioQueueService
   voiceService: VoiceService
   intelligence: IntelligenceService
+  emotionEngine: EmotionEngine
   guildConfigRepo: GuildConfigRepository
   aiService: AIService
   eventBus: EventBus
@@ -25,7 +27,7 @@ export interface CommandDeps {
 
 export function buildCommands(deps: CommandDeps): Map<string, XareuCommand> {
   const cmds: XareuCommand[] = [
-    new HelpCommand(deps.audioService),
+    new HelpCommand(),
     new PlayCommand(
       deps.audioService,
       deps.audioQueue,
@@ -35,7 +37,7 @@ export function buildCommands(deps: CommandDeps): Map<string, XareuCommand> {
     ),
     new PetiscoCommand(deps.intelligence, deps.audioQueue, deps.voiceService),
     new ColeiraCommand(deps.guildConfigRepo, deps.voiceService, deps.intelligence),
-    new StatusCommand(deps.intelligence),
+    new StatusCommand(deps.intelligence, deps.emotionEngine),
     new ConfigCommand(deps.guildConfigRepo, deps.voiceService),
   ]
   const map = new Map<string, XareuCommand>()

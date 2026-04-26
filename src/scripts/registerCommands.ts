@@ -29,6 +29,7 @@ async function main(): Promise<void> {
     audioQueue,
     voiceService: stub,
     intelligence: stub,
+    emotionEngine: stub,
     guildConfigRepo,
     aiService: stub,
     eventBus: stub,
