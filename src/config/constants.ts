@@ -19,8 +19,10 @@ export const BOT_CONFIG = {
 
 export const AUDIO_CONFIG = {
   AUDIOS_FOLDER: 'audios',
-  /** Áudio padrão para latido único */
+  /** Áudio padrão para latido amigável (afinidade ≥ ROSNADO_AFFINITY_MAX) */
   DEFAULT_BARK_FILE: 'latido-unico.mp3',
+  /** Áudio de rosnado pra quando Xaréu não confia no usuário */
+  ROSNADO_FILE: 'rosnando.mp3',
   /** Extensões aceitas */
   SUPPORTED_EXTENSIONS: ['.mp3'] as const,
 } as const
@@ -28,9 +30,12 @@ export const AUDIO_CONFIG = {
 export const AFFINITY_CONFIG = {
   MIN: 0,
   MAX: 100,
-  DEFAULT: 50,
+  /** Afinidade inicial de qualquer novo usuário */
+  DEFAULT: 20,
   /** Afinidade mínima pra Xaréu aceitar a coleira de alguém */
   LEASH_MIN: 50,
+  /** Abaixo disso (exclusive) o Xaréu rosna ao entrar no canal em vez de latir */
+  ROSNADO_AFFINITY_MAX: 30,
   /** Intervalo (ms) entre interações para contar como "spam" e não ganhar afinidade */
   ANTI_SPAM_WINDOW_MS: 30_000,
 } as const

@@ -12,7 +12,7 @@ model User {
   discordId       String        @unique @map("discord_id")
   username        String
   displayName     String?       @map("display_name")
-  affinity        Int           @default(50)
+  affinity        Int           @default(20)
   mood            String        @default("neutro")
   xp              Int           @default(0)
   tags            String[]      @default([])

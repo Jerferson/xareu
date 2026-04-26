@@ -58,7 +58,13 @@ export class DiscordBot {
 
     const audioService = new AudioService()
     const audioQueue = new AudioQueueService(audioService)
-    this.voiceService = new VoiceService(this.client, audioService, audioQueue, guildConfigRepo)
+    this.voiceService = new VoiceService(
+      this.client,
+      audioService,
+      audioQueue,
+      guildConfigRepo,
+      this.intelligence,
+    )
     const aiService = new AIService(redis, this.intelligence, interactionRepo)
     const commandService = new CommandService(
       audioService,

@@ -7,10 +7,11 @@ import {
   VoiceConnectionStatus,
 } from '@discordjs/voice'
 import { Client, Guild, VoiceChannel } from 'discord.js'
-import { AUDIO_CONFIG, BOT_CONFIG } from '../config/constants'
+import { AFFINITY_CONFIG, AUDIO_CONFIG, BOT_CONFIG } from '../config/constants'
 import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
 import { AudioService } from './AudioService'
 import { AudioQueueService } from './AudioQueueService'
+import { IntelligenceService } from './IntelligenceService'
 import { selectRandomMinute, minutesToMilliseconds } from '../utils/helpers'
 import { logger as log } from '../utils/logger'
 
@@ -30,6 +31,7 @@ export class VoiceService {
     private readonly audioService: AudioService,
     private readonly audioQueue: AudioQueueService,
     private readonly guildConfigRepo: GuildConfigRepository,
+    private readonly intelligence: IntelligenceService,
   ) {}
 
   // ────────────────────────────────────────────────────────────────
@@ -271,15 +273,42 @@ export class VoiceService {
     }
 
     const connection = await this.joinChannel(channel)
+    const entrySound = await this.pickEntrySound(channel)
 
     // Pequeno delay após Ready: o gateway de voz às vezes ainda não está
     // 100% pronto pra receber bytes, e o início do áudio era cortado.
     setTimeout(() => {
-      void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
+      void this.audioQueue.playInternal(connection, guildId, entrySound)
       this.schedulePeriodicBark(guildId)
     }, BOT_CONFIG.ENTRY_WAIT_TIME_MS)
 
     return connection
+  }
+
+  /**
+   * Decide o som ao entrar no canal: rosna se o dono da coleira tem afinidade
+   * baixa, late no caso normal. Na casinha sempre é latido (canal neutro).
+   */
+  private async pickEntrySound(channel: VoiceChannel): Promise<string> {
+    const guildId = channel.guild.id
+    if (channel.name === this.getState(guildId).casinhaName) {
+      return AUDIO_CONFIG.DEFAULT_BARK_FILE
+    }
+
+    const config = await this.guildConfigRepo.getOrCreate(guildId)
+    if (!config.leashOwnerId) return AUDIO_CONFIG.DEFAULT_BARK_FILE
+
+    const memory = await this.intelligence.getMemory(config.leashOwnerId)
+    if (!memory) return AUDIO_CONFIG.DEFAULT_BARK_FILE
+
+    if (memory.user.affinity < AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX) {
+      log.info(
+        { guildId, owner: config.leashOwnerId, affinity: memory.user.affinity },
+        '🐺 afinidade baixa — rosnando ao entrar',
+      )
+      return AUDIO_CONFIG.ROSNADO_FILE
+    }
+    return AUDIO_CONFIG.DEFAULT_BARK_FILE
   }
 
   // ────────────────────────────────────────────────────────────────
