@@ -272,43 +272,61 @@ export class VoiceService {
       s.isInCasinha = false
     }
 
-    const connection = await this.joinChannel(channel)
-    const entrySound = await this.pickEntrySound(channel)
+    // Detecta se o bot está chegando num canal novo ou só revalidando o atual
+    const previousChannelId = getVoiceConnection(guildId)?.joinConfig.channelId
+    const isNewChannel = previousChannelId !== channel.id
 
-    // Pequeno delay após Ready: o gateway de voz às vezes ainda não está
-    // 100% pronto pra receber bytes, e o início do áudio era cortado.
-    setTimeout(() => {
-      void this.audioQueue.playInternal(connection, guildId, entrySound)
-      this.schedulePeriodicBark(guildId)
-    }, BOT_CONFIG.ENTRY_WAIT_TIME_MS)
+    const connection = await this.joinChannel(channel)
+
+    if (isNewChannel) {
+      // Bot chegando — toca latido amigável de cumprimento
+      setTimeout(() => {
+        void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
+        this.schedulePeriodicBark(guildId)
+      }, BOT_CONFIG.ENTRY_WAIT_TIME_MS)
+    } else {
+      log.info({ guildId, channel: channel.name }, '⏭️ canal idem — sem latido (bot já estava aqui)')
+    }
 
     return connection
   }
 
   /**
-   * Decide o som ao entrar no canal: rosna se o dono da coleira tem afinidade
-   * baixa, late no caso normal. Na casinha sempre é latido (canal neutro).
+   * Reação do bot quando alguém entra no canal onde ele já está:
+   * - afinidade < 30 → rosnado (alto)
+   * - afinidade ≥ 30 (ou sem memória) → latido amigável de cumprimento
    */
-  private async pickEntrySound(channel: VoiceChannel): Promise<string> {
-    const guildId = channel.guild.id
-    if (channel.name === this.getState(guildId).casinhaName) {
-      return AUDIO_CONFIG.DEFAULT_BARK_FILE
-    }
+  async playEntryReactionFor(guildId: string, userId: string): Promise<void> {
+    const connection = getVoiceConnection(guildId)
+    if (!connection) return
 
-    const config = await this.guildConfigRepo.getOrCreate(guildId)
-    if (!config.leashOwnerId) return AUDIO_CONFIG.DEFAULT_BARK_FILE
+    const memory = await this.intelligence.getMemory(userId)
+    const threshold = AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX
+    const affinity = memory?.user.affinity
 
-    const memory = await this.intelligence.getMemory(config.leashOwnerId)
-    if (!memory) return AUDIO_CONFIG.DEFAULT_BARK_FILE
-
-    if (memory.user.affinity < AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX) {
+    if (affinity !== undefined && affinity < threshold) {
       log.info(
-        { guildId, owner: config.leashOwnerId, affinity: memory.user.affinity },
-        '🐺 afinidade baixa — rosnando ao entrar',
+        { guildId, userId, affinity, threshold },
+        '🐺 rosnando: user de afinidade baixa entrou no canal do bot',
       )
-      return AUDIO_CONFIG.ROSNADO_FILE
+      void this.audioQueue.playInternal(
+        connection,
+        guildId,
+        AUDIO_CONFIG.ROSNADO_FILE,
+        AUDIO_CONFIG.ROSNADO_VOLUME_BOOST,
+      )
+      return
     }
-    return AUDIO_CONFIG.DEFAULT_BARK_FILE
+
+    log.info({ guildId, userId, affinity }, '🐕 latindo amigável: user entrou no canal do bot')
+    void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
+  }
+
+  /** Retorna o channelId atual do bot na guilda (ou null). */
+  getBotChannelId(guildId: string): string | null {
+    const guild = this.client.guilds.cache.get(guildId)
+    const botMember = guild?.members.cache.get(this.client.user?.id ?? '')
+    return botMember?.voice.channelId ?? null
   }
 
   // ────────────────────────────────────────────────────────────────

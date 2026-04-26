@@ -99,6 +99,33 @@ export class VoiceStateHandler {
         channelName: newChannel.name,
       })
 
+      // User entrando no canal onde o bot JÁ ESTÁ → eventualmente rosna
+      // (não é o bot que tá movendo — é alguém chegando no território dele).
+      const botChannelId = this.voiceService.getBotChannelId(guildId)
+      const userEnteredBotChannel = botChannelId === newChannel.id && oldState.channelId !== newChannel.id
+      if (userEnteredBotChannel) {
+        logger.info({ userId, channel: newChannel.name }, '👀 user entrou no canal do bot — reagindo')
+        await this.voiceService.playEntryReactionFor(guildId, userId)
+      }
+
+      // Revalida confiança do dono atual: se afinidade < LEASH_MIN, perde a coleira
+      // e o bot volta pra casinha (não obedece mais).
+      if (config.leashOwnerId && this.voiceService.isFollowing(guildId)) {
+        const owner = await this.intelligence.getOrCreateUser({
+          discordId: config.leashOwnerId,
+          username: config.leashOwnerId,
+        })
+        if (owner.affinity < AFFINITY_CONFIG.LEASH_MIN) {
+          logger.info(
+            { ownerId: config.leashOwnerId, affinity: owner.affinity, min: AFFINITY_CONFIG.LEASH_MIN },
+            '🪙 dono perdeu confiança — coleira anulada, voltando pra casinha',
+          )
+          await this.guildConfigRepo.setLeashOwner(guildId, null)
+          await this.voiceService.goToCasinha(guildId)
+          return
+        }
+      }
+
       // Primeiro a entrar no servidor: bot acorda
       const wasServerEmpty = !oldState.channel
       if (wasServerEmpty && !this.voiceService.isBotConnected(guildId)) {
@@ -143,21 +170,34 @@ export class VoiceStateHandler {
           )
           return
         }
-        // Auto-coleira: só quem tem afinidade suficiente vira dono ao entrar na casinha
-        if (!config.leashOwnerId) {
-          const member = newState.member
-          const user = await this.intelligence.getOrCreateUser({
-            discordId: userId,
-            username: member?.user.username ?? userId,
-            displayName: member?.displayName ?? null,
-          })
-          if (user.affinity < AFFINITY_CONFIG.LEASH_MIN) {
+
+        // Sempre revalida afinidade — vale tanto pra auto-coleira (novo dono)
+        // quanto pra reconfirmar a confiança de quem já era dono.
+        const member = newState.member
+        const user = await this.intelligence.getOrCreateUser({
+          discordId: userId,
+          username: member?.user.username ?? userId,
+          displayName: member?.displayName ?? null,
+        })
+        if (user.affinity < AFFINITY_CONFIG.LEASH_MIN) {
+          if (config.leashOwnerId === userId) {
+            // Já era dono mas afinidade caiu — anula a coleira
+            await this.guildConfigRepo.setLeashOwner(guildId, null)
             logger.info(
               { userId, affinity: user.affinity, min: AFFINITY_CONFIG.LEASH_MIN },
-              '🚫 branch: user entrou na casinha mas afinidade < mínimo — coleira não passa',
+              '🪙 dono perdeu confiança ao entrar na casinha — coleira anulada',
             )
-            return
+          } else {
+            logger.info(
+              { userId, affinity: user.affinity, min: AFFINITY_CONFIG.LEASH_MIN },
+              '🚫 user entrou na casinha mas afinidade < mínimo — bot continua na casinha',
+            )
           }
+          return
+        }
+
+        // Afinidade ok: vira novo dono se ainda não for + começa a seguir
+        if (!config.leashOwnerId) {
           await this.guildConfigRepo.setLeashOwner(guildId, userId)
           logger.info({ userId, affinity: user.affinity }, '🎀 auto-coleira: novo dono ao entrar na casinha')
         }
