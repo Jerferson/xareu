@@ -1,23 +1,42 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js'
-import { AudioService } from './services/AudioService'
-import { VoiceService } from './services/VoiceService'
-import { CommandService } from './services/CommandService'
+import { env } from './config/env'
+import { buildCommands } from './commands'
+import { EventBus } from './events/EventBus'
+import { InteractionHandler } from './handlers/InteractionHandler'
 import { MessageHandler } from './handlers/MessageHandler'
 import { VoiceStateHandler } from './handlers/VoiceStateHandler'
+import { disconnectPrisma, getPrisma } from './infrastructure/database'
+import { disconnectRedis, getRedis } from './infrastructure/redis'
+import { GuildConfigRepository } from './repositories/GuildConfigRepository'
+import { InteractionRepository } from './repositories/InteractionRepository'
+import { UserFactRepository } from './repositories/UserFactRepository'
+import { UserMemoryRepository } from './repositories/UserMemoryRepository'
+import { UserQuestionRepository } from './repositories/UserQuestionRepository'
+import { UserRepository } from './repositories/UserRepository'
+import { AIService } from './services/AIService'
+import { AudioQueueService } from './services/AudioQueueService'
+import { AudioService } from './services/AudioService'
+import { CommandService } from './services/CommandService'
+import { ContextBuilderService } from './services/ContextBuilderService'
+import { EmotionEngine } from './services/EmotionEngine'
+import { IntelligenceService } from './services/IntelligenceService'
+import { MemoryExtractionService } from './services/MemoryExtractionService'
+import { MoodService } from './services/MoodService'
+import { QuestionService } from './services/QuestionService'
+import { VoiceService } from './services/VoiceService'
+import { logger } from './utils/logger'
 
-/**
- * Classe principal do bot Discord
- */
 export class DiscordBot {
-  private client: Client
-  private audioService: AudioService
-  private voiceService: VoiceService
-  private commandService: CommandService
-  private messageHandler: MessageHandler
-  private voiceStateHandler: VoiceStateHandler
+  private readonly client: Client
+  private readonly voiceService: VoiceService
+  private readonly intelligence: IntelligenceService
+  private readonly messageHandler: MessageHandler
+  private readonly voiceStateHandler: VoiceStateHandler
+  private readonly interactionHandler: InteractionHandler
+  private readonly eventBus: EventBus
+  private shuttingDown = false
 
   constructor() {
-    // Inicializa o cliente Discord
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -26,94 +45,136 @@ export class DiscordBot {
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
       ],
-      partials: [
-        Partials.Channel,
-        Partials.Message,
-      ],
+      partials: [Partials.Channel, Partials.Message],
     })
 
-    // Inicializa os serviços
-    this.audioService = new AudioService()
-    this.voiceService = new VoiceService(this.client, this.audioService)
-    this.commandService = new CommandService(this.audioService, this.voiceService)
+    const prisma = getPrisma()
+    const redis = getRedis()
 
-    // Inicializa os handlers
-    this.messageHandler = new MessageHandler(this.commandService)
-    this.voiceStateHandler = new VoiceStateHandler(this.voiceService)
+    // Repositories
+    const userRepo = new UserRepository(prisma)
+    const interactionRepo = new InteractionRepository(prisma)
+    const guildConfigRepo = new GuildConfigRepository(prisma)
+    const memoryRepo = new UserMemoryRepository(prisma)
+    const factRepo = new UserFactRepository(prisma)
+    const questionRepo = new UserQuestionRepository(prisma)
 
-    // Registra os eventos
+    // Event bus
+    this.eventBus = new EventBus()
+
+    // Domain services
+    const moodService = new MoodService()
+    this.intelligence = new IntelligenceService(userRepo, interactionRepo, moodService, this.eventBus)
+
+    const audioService = new AudioService()
+    const audioQueue = new AudioQueueService(audioService)
+    this.voiceService = new VoiceService(
+      this.client,
+      audioService,
+      audioQueue,
+      guildConfigRepo,
+      this.intelligence,
+    )
+
+    const emotionEngine = new EmotionEngine()
+    const contextBuilder = new ContextBuilderService(memoryRepo, factRepo, interactionRepo)
+    const memoryExtraction = new MemoryExtractionService(
+      userRepo,
+      memoryRepo,
+      factRepo,
+      interactionRepo,
+      questionRepo,
+    )
+    const questionService = new QuestionService(questionRepo)
+    const aiService = new AIService(
+      redis,
+      this.intelligence,
+      emotionEngine,
+      contextBuilder,
+      memoryExtraction,
+      questionService,
+      factRepo,
+      guildConfigRepo,
+    )
+    const commandService = new CommandService(this.intelligence, aiService)
+
+    const commands = buildCommands({
+      audioService,
+      audioQueue,
+      voiceService: this.voiceService,
+      intelligence: this.intelligence,
+      emotionEngine,
+      guildConfigRepo,
+      aiService,
+      eventBus: this.eventBus,
+    })
+
+    // Handlers
+    this.messageHandler = new MessageHandler(commandService, guildConfigRepo)
+    this.voiceStateHandler = new VoiceStateHandler(
+      this.voiceService,
+      guildConfigRepo,
+      this.eventBus,
+      this.intelligence,
+    )
+    this.interactionHandler = new InteractionHandler(commands)
+
     this.registerEvents()
   }
 
-  /**
-   * Registra os eventos do Discord
-   */
   private registerEvents(): void {
-    this.client.once('ready', () => this.handleReady())
-    this.client.on('error', (error) => this.handleError(error))
-    this.client.on('warn', (info) => this.handleWarning(info))
-    this.client.on('messageCreate', (message) => this.messageHandler.handle(message))
-    this.client.on('voiceStateUpdate', (oldState, newState) =>
-      this.voiceStateHandler.handle(oldState, newState)
-    )
-  }
-
-  /**
-   * Handler para quando o bot estiver pronto
-   */
-  private handleReady(): void {
-    console.log(`🤖 Bot logado como ${this.client.user?.tag}`)
-    console.log(`📊 Servidores conectados: ${this.client.guilds.cache.size}`)
-
-    this.client.guilds.cache.forEach(guild => {
-      console.log(`   - ${guild.name} (${guild.id})`)
+    this.client.once('clientReady', () => this.handleReady())
+    this.client.on('error', (err) => logger.error({ err }, 'Discord client error'))
+    this.client.on('warn', (info) => logger.warn(info))
+    this.client.on('messageCreate', (message) => {
+      this.messageHandler.handle(message).catch((err) => logger.error({ err }, 'MessageHandler error'))
     })
-
-    console.log('\n⏳ Aguardando eventos de voz...\n')
+    this.client.on('voiceStateUpdate', (oldState, newState) => {
+      this.voiceStateHandler
+        .handle(oldState, newState)
+        .catch((err) => logger.error({ err }, 'VoiceStateHandler error'))
+    })
+    this.client.on('interactionCreate', (interaction) => {
+      this.interactionHandler
+        .handle(interaction)
+        .catch((err) => logger.error({ err }, 'InteractionHandler error'))
+    })
   }
 
-  /**
-   * Handler para erros
-   */
-  private handleError(error: Error): void {
-    console.error('❌ Erro no cliente:', error)
-  }
-
-  /**
-   * Handler para avisos
-   */
-  private handleWarning(info: string): void {
-    console.warn('⚠️  Aviso:', info)
-  }
-
-  /**
-   * Inicia o bot
-   */
-  async start(token: string): Promise<void> {
-    if (!token) {
-      throw new Error('DISCORD_TOKEN não encontrado no arquivo .env')
+  private async handleReady(): Promise<void> {
+    logger.info({ tag: this.client.user?.tag, guilds: this.client.guilds.cache.size }, '🤖 Bot logado')
+    for (const guild of this.client.guilds.cache.values()) {
+      try {
+        await this.voiceService.loadGuildConfig(guild.id)
+        await this.voiceService.recoverStateAfterRestart(guild.id)
+      } catch (err) {
+        logger.warn({ err, guild: guild.name }, 'Falha ao carregar config/recuperar estado')
+      }
     }
+    logger.info('⏳ Aguardando eventos...')
+  }
+
+  async start(): Promise<void> {
+    await this.client.login(env.DISCORD_TOKEN)
+  }
+
+  async stop(): Promise<void> {
+    if (this.shuttingDown) return
+    this.shuttingDown = true
+    logger.info('🛑 Encerrando bot...')
 
     try {
-      await this.client.login(token)
-    } catch (error) {
-      console.error('❌ Erro ao iniciar o bot:', error)
-      throw error
+      this.voiceService.shutdown()
+      this.eventBus.removeAllListeners()
+      await this.client.destroy()
+      await disconnectRedis()
+      await disconnectPrisma()
+      logger.info('✅ Bot encerrado')
+    } catch (err) {
+      logger.error({ err }, 'Erro durante shutdown')
     }
   }
 
-  /**
-   * Para o bot
-   */
-  async stop(): Promise<void> {
-    console.log('🛑 Encerrando bot...')
-    await this.client.destroy()
-    console.log('✅ Bot encerrado com sucesso')
-  }
-
-  /**
-   * Retorna a instância do cliente
-   */
   getClient(): Client {
     return this.client
   }

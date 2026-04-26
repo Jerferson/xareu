@@ -1,26 +1,26 @@
 /**
- * Funções utilitárias gerais
+ * Funções utilitárias puras.
  */
 
-/**
- * Seleciona um minuto aleatório de uma lista
- */
 export function selectRandomMinute(minutes: readonly number[]): number {
   const index = Math.floor(Math.random() * minutes.length)
   return minutes[index]
 }
 
-/**
- * Converte minutos para milissegundos
- */
 export function minutesToMilliseconds(minutes: number): number {
   return minutes * 60 * 1000
 }
 
-/**
- * Formata mensagem de log com timestamp
- */
-export function logWithTimestamp(message: string): void {
-  const timestamp = new Date().toISOString()
-  console.log(`[${timestamp}] ${message}`)
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+export function pickRandom<T>(items: readonly T[]): T | undefined {
+  if (items.length === 0) return undefined
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+export function daysSince(date: Date): number {
+  const ms = Date.now() - date.getTime()
+  return ms / (1000 * 60 * 60 * 24)
 }

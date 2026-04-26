@@ -1,28 +1,67 @@
 /**
- * Configurações e constantes do bot
+ * Constantes de comportamento do bot.
+ * Configurações por servidor ficam em GuildConfig (DB).
  */
 
 export const BOT_CONFIG = {
   /** Minutos possíveis para latidos aleatórios */
-  RANDOM_BARK_MINUTES: [10, 25, 30, 45, 50],
+  RANDOM_BARK_MINUTES: [10, 25, 30, 45, 50] as const,
 
   /** Tempo limite para reprodução de áudio (em milissegundos) */
   AUDIO_TIME_LIMIT_MS: 5000,
 
-  /** Tempo de espera após entrada no canal antes de tocar áudio (em milissegundos) */
-  ENTRY_WAIT_TIME_MS: 2000,
+  /** Delay após Ready antes de tocar o latido — gateway de voz precisa estabilizar */
+  ENTRY_WAIT_TIME_MS: 800,
 
-  /** URL de convite do bot */
-  INVITE_URL: 'https://discord.com/api/oauth2/authorize?client_id=1466193686542028982&permissions=3146752&scope=bot',
-
-  /** Nome do canal "Casinha do Xeréu" */
-  CASINHA_CHANNEL_NAME: 'Casinha do Xeréu',
+  /** Nome padrão da casinha (override por GuildConfig) */
+  DEFAULT_CASINHA_NAME: 'Casinha do Xeréu',
 } as const
 
 export const AUDIO_CONFIG = {
-  /** Caminho relativo para a pasta de áudios */
   AUDIOS_FOLDER: 'audios',
-
-  /** Arquivo de áudio padrão para latido único */
+  /** Áudio padrão para latido amigável (afinidade ≥ ROSNADO_AFFINITY_MAX) */
   DEFAULT_BARK_FILE: 'latido-unico.mp3',
+  /** Áudio de rosnado pra quando Xaréu não confia no usuário */
+  ROSNADO_FILE: 'rosnando.mp3',
+  /** Boost de volume aplicado no rosnado (arquivo gravado em volume baixo) */
+  ROSNADO_VOLUME_BOOST: 1.8,
+  /** Áudio que toca quando alguém dá um petisco */
+  PETISCO_FILE: 'mastigando-crocante.mp3',
+  /** Extensões aceitas */
+  SUPPORTED_EXTENSIONS: ['.mp3'] as const,
 } as const
+
+export const AFFINITY_CONFIG = {
+  MIN: 0,
+  MAX: 100,
+  /** Afinidade inicial de qualquer novo usuário */
+  DEFAULT: 20,
+  /** Afinidade mínima pra Xaréu aceitar a coleira de alguém */
+  LEASH_MIN: 50,
+  /** Abaixo disso (exclusive) o Xaréu rosna ao entrar no canal em vez de latir */
+  ROSNADO_AFFINITY_MAX: 30,
+  /** Intervalo (ms) entre interações para contar como "spam" e não ganhar afinidade */
+  ANTI_SPAM_WINDOW_MS: 30_000,
+} as const
+
+export const MOOD = {
+  FELIZ: 'feliz',
+  CARENTE: 'carente',
+  BRAVO: 'bravo',
+  ANIMADO: 'animado',
+  DORMINDO: 'dormindo',
+  NEUTRO: 'neutro',
+} as const
+
+export type Mood = (typeof MOOD)[keyof typeof MOOD]
+
+export const TAGS = {
+  AMIGAVEL: 'amigavel',
+  IGNORA: 'ignora',
+  BRINCA_MUITO: 'brinca-muito',
+  NOVATO: 'novato',
+  ANTIGO: 'antigo',
+  CARENTE: 'carente',
+} as const
+
+export type UserTag = (typeof TAGS)[keyof typeof TAGS]

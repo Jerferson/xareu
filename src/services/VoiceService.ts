@@ -1,255 +1,379 @@
 import {
-  joinVoiceChannel,
+  entersState,
   getVoiceConnection,
   getVoiceConnections,
+  joinVoiceChannel,
   VoiceConnection,
+  VoiceConnectionStatus,
 } from '@discordjs/voice'
-import { Client, VoiceChannel, Guild } from 'discord.js'
+import { Client, Guild, VoiceChannel } from 'discord.js'
+import { AFFINITY_CONFIG, AUDIO_CONFIG, BOT_CONFIG } from '../config/constants'
+import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
 import { AudioService } from './AudioService'
-import { BOT_CONFIG } from '../config/constants'
+import { AudioQueueService } from './AudioQueueService'
+import { IntelligenceService } from './IntelligenceService'
 import { selectRandomMinute, minutesToMilliseconds } from '../utils/helpers'
-import { ActiveConnectionResult } from '../types'
+import { logger as log } from '../utils/logger'
 
-/**
- * Serviço responsável pelo gerenciamento de conexões de voz
- */
+interface GuildState {
+  isInCasinha: boolean
+  isFollowing: boolean
+  barkTimer?: NodeJS.Timeout
+  casinhaName: string
+}
+
 export class VoiceService {
-  private barkTimersByGuild = new Map<string, NodeJS.Timeout>()
-  private audioService: AudioService
-  private client: Client
-  private isInCasinha = new Map<string, boolean>()
-  private isFollowingUser = new Map<string, boolean>()
+  private readonly state = new Map<string, GuildState>()
+  private readonly lifecycleLoggedConnections = new WeakSet<VoiceConnection>()
 
-  constructor(client: Client, audioService: AudioService) {
-    this.client = client
-    this.audioService = audioService
+  constructor(
+    private readonly client: Client,
+    private readonly audioService: AudioService,
+    private readonly audioQueue: AudioQueueService,
+    private readonly guildConfigRepo: GuildConfigRepository,
+    private readonly intelligence: IntelligenceService,
+  ) {}
+
+  // ────────────────────────────────────────────────────────────────
+  // Estado por guilda
+  // ────────────────────────────────────────────────────────────────
+
+  private getState(guildId: string): GuildState {
+    let s = this.state.get(guildId)
+    if (!s) {
+      s = { isInCasinha: false, isFollowing: false, casinhaName: BOT_CONFIG.DEFAULT_CASINHA_NAME }
+      this.state.set(guildId, s)
+    }
+    return s
+  }
+
+  async loadGuildConfig(guildId: string): Promise<void> {
+    const config = await this.guildConfigRepo.getOrCreate(guildId)
+    this.getState(guildId).casinhaName = config.casinhaName
   }
 
   /**
-   * Entra em um canal de voz
+   * Restaura o estado em memória após um restart do processo.
+   * Se o bot já está conectado num canal de voz (Discord mantém a sessão),
+   * inferimos `isInCasinha`/`isFollowing` a partir do canal atual.
    */
-  joinVoiceChannel(voiceChannel: any): VoiceConnection {
-    console.log(`🎧 Entrando no canal: ${voiceChannel.name}`)
+  async recoverStateAfterRestart(guildId: string): Promise<void> {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return
+
+    const botMember = guild.members.cache.get(this.client.user?.id ?? '')
+    const botChannel = botMember?.voice.channel as VoiceChannel | null
+    if (!botChannel) return
+
+    const s = this.getState(guildId)
+    if (botChannel.name === s.casinhaName) {
+      s.isInCasinha = true
+      s.isFollowing = false
+      log.info({ guildId, channel: botChannel.name }, '♻️ Estado recuperado: na casinha')
+    } else {
+      s.isInCasinha = false
+      s.isFollowing = true
+      log.info({ guildId, channel: botChannel.name }, '♻️ Estado recuperado: seguindo')
+    }
+  }
+
+  setCasinhaName(guildId: string, name: string): void {
+    this.getState(guildId).casinhaName = name
+  }
+
+  /**
+   * Loga toda mudança de status na conexão — útil pra entender se a conexão
+   * fica oscilando, reconectando, sendo derrubada, etc.
+   */
+  private attachConnectionLifecycleLogs(
+    connection: VoiceConnection,
+    guildId: string,
+    channelName: string,
+  ): void {
+    if (this.lifecycleLoggedConnections.has(connection)) {
+      // Mesma connection reusada (joinVoiceChannel reaproveita) — listeners já existem
+      return
+    }
+    this.lifecycleLoggedConnections.add(connection)
+
+    const states: VoiceConnectionStatus[] = [
+      VoiceConnectionStatus.Signalling,
+      VoiceConnectionStatus.Connecting,
+      VoiceConnectionStatus.Ready,
+      VoiceConnectionStatus.Disconnected,
+      VoiceConnectionStatus.Destroyed,
+    ]
+    for (const state of states) {
+      connection.on(state, (oldState, newState) => {
+        log.info(
+          { guildId, channel: channelName, from: oldState.status, to: newState.status },
+          `🔌 voice connection: ${state}`,
+        )
+      })
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Conexões
+  // ────────────────────────────────────────────────────────────────
+
+  /**
+   * Conecta no canal e aguarda a conexão ficar `Ready`.
+   * Se a conexão antiga estiver travada/disconnected, destrói antes de criar a nova.
+   */
+  async joinChannel(channel: VoiceChannel): Promise<VoiceConnection> {
+    const guildId = channel.guild.id
+    log.info({ channel: channel.name, guildId }, '🎧 Entrando no canal')
+
+    // Se já existe uma conexão e ela está num estado ruim, destrói antes
+    const existing = getVoiceConnection(guildId)
+    if (existing && existing.state.status === VoiceConnectionStatus.Disconnected) {
+      log.warn({ guildId }, 'Conexão anterior estava Disconnected, destruindo antes de reconectar')
+      try {
+        existing.destroy()
+      } catch {
+        /* ignore */
+      }
+    }
 
     const connection = joinVoiceChannel({
-      channelId: voiceChannel.id,
-      guildId: voiceChannel.guild.id,
-      adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      channelId: channel.id,
+      guildId,
+      adapterCreator: channel.guild.voiceAdapterCreator,
     })
 
-    // Aumenta o limite de listeners para evitar warning
-    connection.setMaxListeners(20)
+    connection.removeAllListeners('error')
+    connection.on('error', (err) => log.error({ err, guildId }, 'Erro na conexão de voz'))
 
-    connection.on('error', (error) => {
-      console.error('❌ Erro na conexão de voz:', error)
-    })
+    // Log cada mudança de status — entender se está conectando/reconectando/falhando
+    this.attachConnectionLifecycleLogs(connection, guildId, channel.name)
+
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 10_000)
+      log.info({ guildId, channel: channel.name, status: connection.state.status }, '✅ Conexão Ready')
+    } catch (err) {
+      log.error(
+        { err: (err as Error).message, guildId, channel: channel.name, status: connection.state.status },
+        'Conexão não ficou Ready em 10s — destruindo e tentando uma vez',
+      )
+      try {
+        connection.destroy()
+      } catch {
+        /* ignore */
+      }
+      // Retry uma vez
+      const retry = joinVoiceChannel({
+        channelId: channel.id,
+        guildId,
+        adapterCreator: channel.guild.voiceAdapterCreator,
+      })
+      retry.on('error', (e) => log.error({ err: e, guildId }, 'Erro na conexão de voz (retry)'))
+      this.attachConnectionLifecycleLogs(retry, guildId, channel.name + ' [retry]')
+      try {
+        await entersState(retry, VoiceConnectionStatus.Ready, 10_000)
+        log.info({ guildId, channel: channel.name }, '✅ Conexão Ready (retry)')
+      } catch (retryErr) {
+        log.error(
+          { err: (retryErr as Error).message, guildId, channel: channel.name },
+          '❌ Falha ao conectar mesmo após retry',
+        )
+      }
+      return retry
+    }
+
+    return connection
+  }
+
+  leaveChannel(guildId: string): void {
+    this.cancelScheduledBarks(guildId)
+    this.audioQueue.clearGuild(guildId)
+    const connection = getVoiceConnection(guildId)
+    if (connection) {
+      try {
+        connection.destroy()
+      } catch (err) {
+        log.warn({ err, guildId }, 'Erro ao destruir conexão (ignorado)')
+      }
+    }
+    const s = this.getState(guildId)
+    s.isInCasinha = false
+    s.isFollowing = false
+  }
+
+  isBotConnected(guildId: string): boolean {
+    return getVoiceConnection(guildId) !== undefined
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Casinha
+  // ────────────────────────────────────────────────────────────────
+
+  findCasinhaChannel(guild: Guild): VoiceChannel | null {
+    const name = this.getState(guild.id).casinhaName
+    const channel = guild.channels.cache.find((ch) => ch.name === name && ch.isVoiceBased())
+    return (channel as VoiceChannel | undefined) ?? null
+  }
+
+  isInCasinha(guildId: string): boolean {
+    return this.getState(guildId).isInCasinha
+  }
+
+  isFollowing(guildId: string): boolean {
+    return this.getState(guildId).isFollowing
+  }
+
+  async goToCasinha(guildId: string): Promise<void> {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return
+
+    const casinha = this.findCasinhaChannel(guild)
+    if (!casinha) {
+      log.info({ guildId, guild: guild.name }, '🏠 Casinha não encontrada')
+      return
+    }
+
+    log.info({ guildId, guild: guild.name }, '🏠 Indo para a casinha')
+    const s = this.getState(guildId)
+    s.isFollowing = false
+    s.isInCasinha = true
+    await this.joinChannel(casinha)
+  }
+
+  async startFollowing(guildId: string): Promise<void> {
+    const s = this.getState(guildId)
+    s.isFollowing = true
+    s.isInCasinha = false
+    log.info({ guildId }, '🐕 Começou a seguir')
+  }
+
+  /**
+   * Move o bot até o canal onde o usuário está e ativa o modo follow.
+   * Retorna `false` se o usuário não está em nenhum canal de voz na guilda.
+   */
+  async goToUser(guildId: string, userId: string): Promise<boolean> {
+    const guild = this.client.guilds.cache.get(guildId)
+    if (!guild) return false
+
+    const member = guild.members.cache.get(userId)
+    const channel = member?.voice.channel as VoiceChannel | null
+    if (!channel) return false
+
+    log.info({ guildId, userId, channel: channel.name }, '🦮 Indo até o dono da coleira')
+    await this.startFollowing(guildId)
+    await this.handleChannelEntry(channel)
+    return true
+  }
+
+  async handleChannelEntry(channel: VoiceChannel): Promise<VoiceConnection> {
+    const guildId = channel.guild.id
+    const s = this.getState(guildId)
+
+    if (channel.name !== s.casinhaName) {
+      s.isInCasinha = false
+    }
+
+    // Detecta se o bot está chegando num canal novo ou só revalidando o atual
+    const previousChannelId = getVoiceConnection(guildId)?.joinConfig.channelId
+    const isNewChannel = previousChannelId !== channel.id
+
+    const connection = await this.joinChannel(channel)
+
+    if (isNewChannel) {
+      // Bot chegando — toca latido amigável de cumprimento
+      setTimeout(() => {
+        void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
+        this.schedulePeriodicBark(guildId)
+      }, BOT_CONFIG.ENTRY_WAIT_TIME_MS)
+    } else {
+      log.info({ guildId, channel: channel.name }, '⏭️ canal idem — sem latido (bot já estava aqui)')
+    }
 
     return connection
   }
 
   /**
-   * Sai do canal de voz
+   * Reação do bot quando alguém entra no canal onde ele já está:
+   * - afinidade < 30 → rosnado (alto)
+   * - afinidade ≥ 30 (ou sem memória) → latido amigável de cumprimento
    */
-  leaveVoiceChannel(guildId: string): void {
-    console.log('   👋 Usuário saiu do canal - bot também vai sair')
-
-    this.cancelScheduledBarks(guildId)
-
+  async playEntryReactionFor(guildId: string, userId: string): Promise<void> {
     const connection = getVoiceConnection(guildId)
-    if (connection) {
-      connection.destroy()
-      console.log('   ✅ Bot desconectado')
-    }
-  }
+    if (!connection) return
 
-  /**
-   * Lida com a entrada no canal de voz
-   */
-  handleChannelEntry(voiceChannel: any, guildId: string): void {
-    console.log('   ✅ Usuário entrou no canal')
+    const memory = await this.intelligence.getMemory(userId)
+    const threshold = AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX
+    const affinity = memory?.user.affinity
 
-    // Se está indo para um canal diferente da casinha, marca que saiu
-    if (voiceChannel.name !== BOT_CONFIG.CASINHA_CHANNEL_NAME) {
-      this.markLeftCasinha(guildId)
-    }
-
-    try {
-      const connection = this.joinVoiceChannel(voiceChannel)
-
-      setTimeout(() => {
-        this.playEntryAudio(guildId, connection)
-      }, BOT_CONFIG.ENTRY_WAIT_TIME_MS)
-    } catch (error) {
-      console.error('❌ Erro ao entrar no canal:', error)
-    }
-  }
-
-  /**
-   * Toca o áudio de entrada e inicia o ciclo de latidos (se ainda não estiver ativo)
-   */
-  private playEntryAudio(guildId: string, connection: VoiceConnection): void {
-    this.audioService.playEntryAudio(
-      connection,
-      BOT_CONFIG.AUDIO_TIME_LIMIT_MS,
-      () => {
-        // Só inicia o ciclo de latidos se não houver um timer ativo
-        const hasActiveTimer = this.barkTimersByGuild.has(guildId)
-        if (!hasActiveTimer) {
-          console.log('⏰ Iniciando ciclo de latidos aleatórios...')
-          this.startRandomBarkCycle(guildId, connection)
-        } else {
-          console.log('⏰ Ciclo de latidos já está ativo, mantendo...')
-        }
-      }
-    )
-  }
-
-  /**
-   * Toca um latido aleatório
-   */
-  private playRandomBark(guildId: string, connection: VoiceConnection): void {
-    this.audioService.playRandomBark(
-      connection,
-      BOT_CONFIG.AUDIO_TIME_LIMIT_MS,
-      () => {
-        // Usa a conexão atual para agendar o próximo
-        const currentConnection = getVoiceConnection(guildId)
-        if (currentConnection) {
-          this.scheduleNextBark(guildId, currentConnection)
-        }
-      }
-    )
-  }
-
-  /**
-   * Agenda o próximo latido aleatório
-   */
-  private scheduleNextBark(guildId: string, connection: VoiceConnection): void {
-    const minutes = selectRandomMinute(BOT_CONFIG.RANDOM_BARK_MINUTES)
-    const milliseconds = minutesToMilliseconds(minutes)
-
-    console.log(`⏰ Próximo latido em ${minutes} minuto(s)`)
-
-    const timer = setTimeout(() => {
-      // Pega a conexão atual (pode ter mudado de canal)
-      const currentConnection = getVoiceConnection(guildId)
-      if (currentConnection) {
-        this.playRandomBark(guildId, currentConnection)
-      } else {
-        console.log('⏹️  Bot não está mais conectado, cancelando latidos')
-        this.barkTimersByGuild.delete(guildId)
-      }
-    }, milliseconds)
-
-    this.barkTimersByGuild.set(guildId, timer)
-  }
-
-  /**
-   * Inicia o ciclo de latidos aleatórios
-   */
-  private startRandomBarkCycle(guildId: string, connection: VoiceConnection): void {
-    this.scheduleNextBark(guildId, connection)
-  }
-
-  /**
-   * Cancela latidos agendados
-   */
-  private cancelScheduledBarks(guildId: string): void {
-    const timer = this.barkTimersByGuild.get(guildId)
-    if (timer) {
-      clearTimeout(timer)
-      this.barkTimersByGuild.delete(guildId)
-      console.log('   ⏹️  Timer de latido cancelado')
-    }
-  }
-
-  /**
-   * Busca uma conexão de voz ativa
-   */
-  async findActiveConnection(): Promise<ActiveConnectionResult> {
-    const connections = getVoiceConnections()
-
-    for (const [guildId, voiceConnection] of connections) {
-      const guild = this.client.guilds.cache.get(guildId)
-      const guildName = guild?.name || 'Desconhecido'
-      console.log(`🔍 Conexão encontrada no servidor: ${guildName}`)
-      return { connection: voiceConnection, guildName }
-    }
-
-    return { connection: null, guildName: '' }
-  }
-
-  /**
-   * Toca um áudio por nome através do serviço de áudio
-   */
-  playAudioByName(audioName: string, connection: VoiceConnection): void {
-    this.audioService.playAudioByName(audioName, connection, BOT_CONFIG.AUDIO_TIME_LIMIT_MS)
-  }
-
-  /**
-   * Dado uma string completa ou parcial, busca o melhor nome de áudio correspondente
-   */
-  getBestMatchingAudio(audioName: string): string {
-    return this.audioService.getBestMatchingAudio(audioName)
-  }
-
-  /**
-   * Encontra o canal "Casinha do Xeréu" em um servidor
-   */
-  private findCasinhaChannel(guild: Guild): VoiceChannel | null {
-    const channel = guild.channels.cache.find(
-      (ch) => ch.name === BOT_CONFIG.CASINHA_CHANNEL_NAME && ch.isVoiceBased()
-    )
-    return channel as VoiceChannel | null
-  }
-
-  /**
-   * Move o bot para a casinha do Xeréu
-   */
-  goToCasinha(guildId: string): void {
-    const guild = this.client.guilds.cache.get(guildId)
-    if (!guild) return
-
-    const casinhaChannel = this.findCasinhaChannel(guild)
-    if (!casinhaChannel) {
-      console.log(`🏠 Casinha do Xeréu não encontrada no servidor ${guild.name}`)
+    if (affinity !== undefined && affinity < threshold) {
+      log.info(
+        { guildId, userId, affinity, threshold },
+        '🐺 rosnando: user de afinidade baixa entrou no canal do bot',
+      )
+      void this.audioQueue.playInternal(
+        connection,
+        guildId,
+        AUDIO_CONFIG.ROSNADO_FILE,
+        AUDIO_CONFIG.ROSNADO_VOLUME_BOOST,
+      )
       return
     }
 
-    console.log(`🏠 Indo para a Casinha do Xeréu...`)
-
-    // Para de seguir usuários
-    if (this.isFollowingUser.get(guildId)) {
-      console.log(`🛑 Xeréu parou de seguir - aguardando na casinha`)
-    }
-    this.isFollowingUser.set(guildId, false)
-
-    // NÃO cancela latidos agendados - eles continuam rodando independente do canal
-
-    // Entra na casinha
-    this.joinVoiceChannel(casinhaChannel)
-    this.isInCasinha.set(guildId, true)
+    log.info({ guildId, userId, affinity }, '🐕 latindo amigável: user entrou no canal do bot')
+    void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
   }
 
-  /**
-   * Verifica se alguém está conectado em algum canal de voz (exceto o bot)
-   */
+  /** Retorna o channelId atual do bot na guilda (ou null). */
+  getBotChannelId(guildId: string): string | null {
+    const guild = this.client.guilds.cache.get(guildId)
+    const botMember = guild?.members.cache.get(this.client.user?.id ?? '')
+    return botMember?.voice.channelId ?? null
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Latidos periódicos (mesmo som, intervalo aleatório)
+  // ────────────────────────────────────────────────────────────────
+
+  private schedulePeriodicBark(guildId: string): void {
+    const s = this.getState(guildId)
+    if (s.barkTimer) return // Já agendado
+
+    const minutes = selectRandomMinute(BOT_CONFIG.RANDOM_BARK_MINUTES)
+    log.info({ guildId, minutes }, '⏰ Próximo latido em ' + minutes + ' min')
+
+    s.barkTimer = setTimeout(() => {
+      s.barkTimer = undefined
+      const connection = getVoiceConnection(guildId)
+      if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
+        log.debug({ guildId }, 'Conexão inativa — encerrando ciclo de latidos')
+        return
+      }
+      void this.audioQueue.playInternal(connection, guildId, AUDIO_CONFIG.DEFAULT_BARK_FILE)
+      this.schedulePeriodicBark(guildId)
+    }, minutesToMilliseconds(minutes))
+  }
+
+  cancelScheduledBarks(guildId: string): void {
+    const s = this.getState(guildId)
+    if (s.barkTimer) {
+      clearTimeout(s.barkTimer)
+      s.barkTimer = undefined
+      log.debug({ guildId }, '⏹️ Latidos cancelados')
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Estado dos canais
+  // ────────────────────────────────────────────────────────────────
+
   hasUsersInVoice(guild: Guild): boolean {
     for (const channel of guild.channels.cache.values()) {
-      if (channel.isVoiceBased()) {
-        const voiceChannel = channel as VoiceChannel
-        const members = voiceChannel.members.filter(m => !m.user.bot)
-        if (members.size > 0) {
-          return true
-        }
-      }
+      if (!channel.isVoiceBased()) continue
+      const humans = (channel as VoiceChannel).members.filter((m) => !m.user.bot)
+      if (humans.size > 0) return true
     }
     return false
   }
 
-  /**
-   * Verifica se o bot está sozinho em um canal
-   */
   isBotAloneInChannel(guildId: string): boolean {
     const connection = getVoiceConnection(guildId)
     if (!connection) return false
@@ -257,116 +381,80 @@ export class VoiceService {
     const guild = this.client.guilds.cache.get(guildId)
     if (!guild) return false
 
-    // Encontra o canal onde o bot está
-    const botMember = guild.members.cache.get(this.client.user?.id || '')
+    const botMember = guild.members.cache.get(this.client.user?.id ?? '')
     const botChannel = botMember?.voice.channel as VoiceChannel | null
-
     if (!botChannel) return false
 
-    // Verifica se há outros usuários (não-bots) no canal
-    const humanMembers = botChannel.members.filter(m => !m.user.bot)
-    return humanMembers.size === 0
+    return botChannel.members.filter((m) => !m.user.bot).size === 0
   }
 
-  /**
-   * Lida com usuário entrando em um canal (acordar o bot)
-   */
-  handleUserJoinedChannel(guildId: string): void {
+  async handleUserJoinedChannel(guildId: string): Promise<void> {
     const guild = this.client.guilds.cache.get(guildId)
     if (!guild) return
 
-    const casinhaChannel = this.findCasinhaChannel(guild)
-    if (!casinhaChannel) {
-      console.log(`🏠 Casinha do Xeréu não existe no servidor ${guild.name}`)
-      return
-    }
+    const casinha = this.findCasinhaChannel(guild)
+    if (!casinha) return
 
-    const connection = getVoiceConnection(guildId)
-    if (!connection) {
-      console.log(`😴 Xeréu acordando... Indo para a casinha!`)
-      // Limpa estados antes de ir para a casinha
-      this.isFollowingUser.set(guildId, false)
-      this.goToCasinha(guildId)
-    } else {
-      // Se já há conexão (reinício do bot), garante que não está seguindo e vai para casinha
-      console.log(`🔄 Bot já conectado - resetando estado e indo para casinha...`)
-      this.isFollowingUser.set(guildId, false)
-      this.goToCasinha(guildId)
-    }
+    const s = this.getState(guildId)
+    s.isFollowing = false
+    await this.goToCasinha(guildId)
   }
 
-  /**
-   * Lida com o bot ficando sozinho (sempre desconecta quando sozinho no servidor)
-   */
-  handleBotAlone(guildId: string): void {
+  async handleBotAlone(guildId: string): Promise<void> {
     const guild = this.client.guilds.cache.get(guildId)
     if (!guild) return
 
-    // Se não há ninguém no servidor, desconecta (dorme)
     if (!this.hasUsersInVoice(guild)) {
-      console.log(`😴 Xeréu está sozinho no servidor e vai dormir...`)
-      this.leaveVoiceChannel(guildId)
-      this.isInCasinha.delete(guildId)
-      this.isFollowingUser.delete(guildId)
+      log.info({ guildId }, '😴 Servidor vazio, dormindo')
+      this.leaveChannel(guildId)
       return
     }
 
-    // Se há alguém no servidor mas não no canal do bot, volta para a casinha
-    const casinhaChannel = this.findCasinhaChannel(guild)
-    if (casinhaChannel) {
-      console.log(`🏠 Xeréu ficou sozinho no canal, voltando para a casinha...`)
-      this.goToCasinha(guildId)
+    const casinha = this.findCasinhaChannel(guild)
+    if (casinha) {
+      log.info({ guildId }, '🏠 Voltando para a casinha')
+      await this.goToCasinha(guildId)
     } else {
-      // Se não tem casinha, desconecta
-      console.log(`😴 Xeréu ficou sozinho e não há casinha, vai dormir...`)
-      this.leaveVoiceChannel(guildId)
-      this.isInCasinha.delete(guildId)
-      this.isFollowingUser.delete(guildId)
+      log.info({ guildId }, '😴 Sem casinha, dormindo')
+      this.leaveChannel(guildId)
     }
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // Multi-guild: lookup de conexões
+  // ────────────────────────────────────────────────────────────────
+
   /**
-   * Verifica se está na casinha
+   * Retorna a conexão de uma guilda específica, se existir.
    */
-  isInCasinhaChannel(guildId: string): boolean {
-    return this.isInCasinha.get(guildId) || false
+  getConnection(guildId: string): VoiceConnection | null {
+    return getVoiceConnection(guildId) ?? null
   }
 
   /**
-   * Verifica se o bot está conectado no servidor
+   * Lista todas as guildas em que o bot está conectado, com nome.
    */
-  isBotConnected(guildId: string): boolean {
-    const connection = getVoiceConnection(guildId)
-    return connection !== undefined
+  listActiveGuilds(): { guildId: string; guildName: string }[] {
+    const result: { guildId: string; guildName: string }[] = []
+    for (const guildId of getVoiceConnections().keys()) {
+      const guild = this.client.guilds.cache.get(guildId)
+      result.push({ guildId, guildName: guild?.name ?? 'Desconhecido' })
+    }
+    return result
   }
 
-  /**
-   * Marca que saiu da casinha (quando chamado para outro canal)
-   */
-  markLeftCasinha(guildId: string): void {
-    this.isInCasinha.set(guildId, false)
-  }
-
-  /**
-   * Verifica se está seguindo um usuário
-   */
-  isFollowingUsers(guildId: string): boolean {
-    return this.isFollowingUser.get(guildId) || false
-  }
-
-  /**
-   * Marca que começou a seguir usuários (quando alguém entra na casinha)
-   */
-  startFollowingUser(guildId: string): void {
-    console.log('🐕 Xeréu agora vai seguir o usuário!')
-    this.isFollowingUser.set(guildId, true)
-    this.isInCasinha.set(guildId, false)
-  }
-
-  /**
-   * Para de seguir usuários
-   */
-  stopFollowingUser(guildId: string): void {
-    this.isFollowingUser.set(guildId, false)
+  /** Limpa todos os timers em desligamento. */
+  shutdown(): void {
+    for (const guildId of this.state.keys()) {
+      this.cancelScheduledBarks(guildId)
+    }
+    for (const [, conn] of getVoiceConnections()) {
+      try {
+        conn.destroy()
+      } catch {
+        /* ignore */
+      }
+    }
+    this.state.clear()
   }
 }

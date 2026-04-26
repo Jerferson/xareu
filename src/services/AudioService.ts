@@ -1,138 +1,148 @@
 import {
+  AudioPlayer,
+  AudioPlayerStatus,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus,
-  AudioPlayer,
   VoiceConnection,
 } from '@discordjs/voice'
-import { join, resolve } from 'path'
 import * as fs from 'fs'
+import { extname, join, resolve } from 'path'
 import stringSimilarity from 'string-similarity-js'
 import { AUDIO_CONFIG } from '../config/constants'
-import { AudioFileInfo } from '../types'
+import { logger } from '../utils/logger'
 
-/**
- * Serviço responsável pelo gerenciamento e reprodução de áudios
- */
+export interface AudioMatch {
+  fileName: string
+  score: number
+}
+
 export class AudioService {
   private readonly audiosPath: string
 
-  constructor() {
-    // Resolve o caminho absoluto para a pasta de áudios
-    // process.cwd() retorna o diretório raiz do projeto
-    this.audiosPath = resolve(process.cwd(), AUDIO_CONFIG.AUDIOS_FOLDER)
+  constructor(audiosPath?: string) {
+    this.audiosPath = audiosPath ?? resolve(process.cwd(), AUDIO_CONFIG.AUDIOS_FOLDER)
+  }
+
+  /** Lista nomes (sem extensão) de áudios suportados. */
+  listAvailableAudios(): string[] {
+    return this.listAudioFiles().map((f) => f.replace(/\.mp3$/i, ''))
+  }
+
+  /** Retorna nomes de arquivo (com extensão) suportados. */
+  listAudioFiles(): string[] {
+    try {
+      return fs
+        .readdirSync(this.audiosPath)
+        .filter((file) =>
+          (AUDIO_CONFIG.SUPPORTED_EXTENSIONS as readonly string[]).includes(extname(file).toLowerCase()),
+        )
+    } catch (err) {
+      logger.error({ err, audiosPath: this.audiosPath }, 'Falha ao ler pasta de áudios')
+      return []
+    }
   }
 
   /**
-   * Cria um player de áudio com limite de tempo
+   * Ranqueia todos os áudios pela query. Retorna ordenado do melhor pro pior.
+   * - Substring contígua → boost 100
+   * - Similaridade textual → 0..1 adicional
+   * Quando query é vazia, retorna todos por ordem alfabética.
    */
-  createPlayerWithTimeLimit(
-    audioPath: string,
-    connection: VoiceConnection,
-    timeLimitMs: number,
-    onFinish?: () => void
-  ): AudioPlayer {
-    const player = createAudioPlayer()
-    const resource = createAudioResource(audioPath)
+  searchAudios(query: string, limit?: number): AudioMatch[] {
+    const trimmed = query.trim().toLowerCase()
+    const files = this.listAudioFiles()
+    if (files.length === 0) return []
 
-    player.play(resource)
-    connection.subscribe(player)
-
-    const stopTimer = setTimeout(() => {
-      if (player.state.status !== AudioPlayerStatus.Idle) {
-        console.log(`⏱️  Áudio interrompido (limite de ${timeLimitMs}ms)`)
-        player.stop()
-      }
-    }, timeLimitMs)
-
-    player.on(AudioPlayerStatus.Idle, () => {
-      clearTimeout(stopTimer)
-      console.log('✅ Áudio finalizado')
-      if (onFinish) onFinish()
-    })
-
-    player.on('error', (error) => {
-      clearTimeout(stopTimer)
-      console.error('❌ Erro ao tocar áudio:', error)
-      if (onFinish) onFinish()
-    })
-
-    return player
-  }
-
-  getBestMatchingAudio(completeOrPartiaAudioName: string): string {
-    const audioFiles = fs.readdirSync(this.audiosPath)
-      .map((file): AudioFileInfo => {
-        const bootstrap = file.includes(completeOrPartiaAudioName) ? 100 : 0
-        const metric = bootstrap + stringSimilarity(completeOrPartiaAudioName, file.replace(/\D/, ''))
-        return { file, distance: metric }
-      })
-      .sort((o1, o2) => o2.distance - o1.distance)
-
-    const bestMatch = audioFiles[0]
-    if (!bestMatch) {
-      console.error('❌ Nenhum áudio encontrado')
-      return '';
+    if (!trimmed) {
+      const sorted = [...files].sort((a, b) => a.localeCompare(b))
+      const all = sorted.map((file) => ({ fileName: file, score: 0 }))
+      return limit ? all.slice(0, limit) : all
     }
 
-    return bestMatch.file;
+    const ranked = files
+      .map((file): AudioMatch => {
+        const stripped = file.replace(/\.mp3$/i, '').toLowerCase()
+        const containsBoost = stripped.includes(trimmed) ? 100 : 0
+        const score = containsBoost + stringSimilarity(trimmed, stripped)
+        return { fileName: file, score }
+      })
+      .sort((a, b) => b.score - a.score)
+
+    return limit ? ranked.slice(0, limit) : ranked
   }
 
   /**
-   * Toca um áudio específico pelo nome
+   * Busca o áudio mais similar ao termo. Retorna null pra query vazia ou
+   * quando não há candidatos.
    */
-  playAudioByName(
-    audioName: string,
+  findBestMatch(query: string): AudioMatch | null {
+    if (!query.trim()) return null
+    return this.searchAudios(query, 1)[0] ?? null
+  }
+
+  /** Toca um arquivo (já validado) na conexão atual. Resolve quando termina ou estoura o limite. */
+  async playFile(
     connection: VoiceConnection,
-    timeLimitMs: number = 5000
-  ): void {
-    if (!audioName) {
+    fileName: string,
+    timeLimitMs: number,
+    volume = 1.0,
+  ): Promise<void> {
+    const audioPath = join(this.audiosPath, fileName)
+    if (!fs.existsSync(audioPath)) {
+      logger.warn({ audioPath }, 'Arquivo de áudio não encontrado')
       return
     }
 
-    const audioFilePath = join(this.audiosPath, audioName)
-    console.log(`🎵 Tocando áudio: ${audioName}`)
-    this.createPlayerWithTimeLimit(audioFilePath, connection, timeLimitMs)
-  }
+    return new Promise<void>((resolvePromise) => {
+      const player: AudioPlayer = createAudioPlayer()
+      const resource = createAudioResource(audioPath, { inlineVolume: true })
+      resource.volume?.setVolume(volume)
 
-  /**
-   * Toca o áudio de entrada (latido único)
-   */
-  playEntryAudio(
-    connection: VoiceConnection,
-    timeLimitMs: number,
-    onFinish?: () => void
-  ): void {
-    console.log('🔊 Tocando latido de entrada...')
-    const audioPath = join(this.audiosPath, AUDIO_CONFIG.DEFAULT_BARK_FILE)
-    this.createPlayerWithTimeLimit(audioPath, connection, timeLimitMs, onFinish)
-  }
+      const cleanup = (): void => {
+        clearTimeout(stopTimer)
+        player.removeAllListeners()
+        try {
+          player.stop()
+        } catch {
+          /* já parado */
+        }
+      }
 
-  /**
-   * Toca um latido aleatório
-   */
-  playRandomBark(
-    connection: VoiceConnection,
-    timeLimitMs: number,
-    onFinish?: () => void
-  ): void {
-    console.log('🐕 Tocando latido aleatório...')
-    const audioPath = join(this.audiosPath, AUDIO_CONFIG.DEFAULT_BARK_FILE)
-    this.createPlayerWithTimeLimit(audioPath, connection, timeLimitMs, onFinish)
-  }
+      const stopTimer = setTimeout(() => {
+        if (player.state.status !== AudioPlayerStatus.Idle) {
+          logger.debug({ fileName, timeLimitMs }, 'Áudio interrompido por limite de tempo')
+        }
+        cleanup()
+        resolvePromise()
+      }, timeLimitMs)
 
-  /**
-   * Lista todos os arquivos de áudio disponíveis
-   */
-  listAvailableAudios(): string[] {
-    try {
-      const files = fs.readdirSync(this.audiosPath)
-      return files
-        .filter(file => file.endsWith('.mp3'))
-        .map(file => file.replace('.mp3', ''))
-    } catch (error) {
-      console.error('❌ Erro ao listar áudios:', error)
-      return []
-    }
+      player.on(AudioPlayerStatus.Idle, () => {
+        cleanup()
+        resolvePromise()
+      })
+
+      player.on('error', (err) => {
+        logger.error({ err, fileName }, 'Erro ao tocar áudio')
+        cleanup()
+        resolvePromise()
+      })
+
+      player.play(resource)
+      const subscription = connection.subscribe(player)
+      logger.info(
+        {
+          fileName,
+          connStatus: connection.state.status,
+          subscribed: Boolean(subscription),
+        },
+        '🎵 Tocando áudio',
+      )
+      if (!subscription) {
+        logger.warn(
+          { fileName, connStatus: connection.state.status },
+          '⚠️ connection.subscribe retornou undefined — áudio pode não tocar',
+        )
+      }
+    })
   }
 }

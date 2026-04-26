@@ -1,248 +1,354 @@
-# 🐶 Xaréu — O Cachorro Mais Zoeiro do Discord
+# 🐶 Xaréu — O Pet Inteligente do Discord
 
-<div align="center">
+> *"Au au, humano! Cadê minha coleira?"*
 
-### *"Au au, humano! Cadê minha coleira?"*
+**Xaréu v2** é um cachorro virtual com **memória, personalidade e relacionamento individual**. Ele reage a você baseado em quanto vocês interagem, lembra das conversas e usa IA pra responder no servidor e no DM.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Discord.js](https://img.shields.io/badge/Discord.js-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.js.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-
-**Um cachorrinho multicultural 🌍 que transforma seu servidor Discord em uma verdadeira bagunça organizada**
-
-[Funcionalidades](#-o-que-o-xaréu-faz-hoje) • [Personalidade](#-conhecendo-o-xaréu) • [Instalação](#-como-adotar-o-xaréu) • [Roadmap](#-roadmap) • [Contribuir](#-contribuições)
-
-</div>
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Discord.js](https://img.shields.io/badge/Discord.js-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
+[![Postgres](https://img.shields.io/badge/Postgres-336791?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/)
 
 ---
 
-## 🦴 Conhecendo o Xaréu
+## 🦴 O que ele faz
 
-Xaréu não é só um bot — é **O PET** do seu servidor Discord.
+### Voz
+- 🏠 **Casinha** — espera os humanos num canal específico (configurável por servidor) e dorme quando o servidor fica vazio
+- 🐕 **Modo seguir** — acompanha o dono da coleira entre canais; o `joinVoiceChannel` aguarda o estado `Ready` antes de tocar áudio (sem latido cortado)
+- 🎵 **96 áudios** na biblioteca + **latido periódico** (mesmo som, intervalo aleatório de 10/25/30/45/50 min)
+- 🎀 **Coleira inteligente**:
+  - `/coleira pegar` — bot vai até você na hora
+  - `/coleira passar @x` — bot vai até x
+  - `/coleira largar` — bot volta pra casinha imediatamente
+  - **Auto-coleira**: quando ninguém tem a coleira, o primeiro a entrar na casinha com afinidade ≥ 50 vira o novo dono
+  - **Confiança mínima**: Xaréu só aceita coleira de quem tem **afinidade ≥ 50**
+  - **Revalidação contínua**: se a afinidade do dono cair abaixo de 50 (decay temporal), a coleira é anulada automaticamente na próxima movimentação ou ao entrar na casinha — bot volta sozinho pra casinha
+- 🔊 **Sons reativos** (alguém entrando no canal onde o bot já está):
+  - afinidade < 30 → 🐺 `rosnando.mp3` (volume +80%)
+  - afinidade ≥ 30 → 🐕 latido amigável de cumprimento
+  - bot **chegando** num canal novo (seguindo alguém) → sempre latido amigável
+- 🦴 **Mastiga ao receber petisco** — cada `/petisco` toca `mastigando-crocante.mp3` no canal de voz se o bot estiver conectado
+- 🥚 **Novos usuários começam com afinidade 20** — precisam interagir até subir pra ≥ 50 antes de pegar a coleira
+- 🪃 **Debouncing de 600ms** — trocas rápidas de canal não disparam o erro `IP discovery - socket closed`
+- ♻️ **State recovery** — se o processo reiniciar, o bot infere a partir do canal atual se está na casinha ou seguindo
+- ⏱️ **Cooldown por usuário** — sem spam de áudio
+- 🔊 **Volume configurável por servidor**
 
-Ele é aquele cachorro que:
-- 🐕 **Não larga do seu pé** (literalmente entra onde você entra)
-- 🤪 **Zoeiro profissional** (late na hora errada, mas do jeito certo)
-- 👥 **Sociável demais** (odeia ficar sozinho na casinha)
-- � **Multicultural** (mistura referências e memes de várias culturas)
-- 🧠 **Em evolução** (cada dia aprende uma arte nova)
+### Memória e personalidade
+- 🧠 **Afinidade 0-100** por usuário, com **decay diário** automático
+- 🐾 **Humor dinâmico**: feliz · animado · carente · bravo · dormindo · neutro
+- 🏷️ **Tags automáticas**: amigavel, ignora, brinca-muito, novato, antigo, carente
+- 🦴 **Petiscos** dão afinidade extra (`/petisco`)
+- 📖 **Histórico** de cada interação salvo no Postgres
 
-### ⚠️ Aviso aos donos de primeira viagem:
-> Xaréu não é um daqueles bots certinhos que ficam parados esperando comandos.
-> Ele late, acompanha, faz barulho e PARTICIPA da conversa.
-> Se você quer um bot "profissional", talvez o Xaréu não seja pra você... 😏
+### Tabela de afinidade
 
----
+| Ação | Delta | Cooldown |
+|---|---|---|
+| `/petisco` | +8 | 6h se afinidade ≥ 95 |
+| Menção no servidor (responde com IA) | +3 | rate limit 10/min |
+| DM longa (vira conversa com IA) | +3 | rate limit 10/min |
+| Áudio tocado | +1 | cooldown configurável |
+| Entrar em canal de voz | +1 | — |
+| Decay diário (passivo) | −2/dia | aplicado on-demand |
 
-## 🔊 O que o Xaréu faz hoje
+**Thresholds**:
+- Default de novos usuários: **20**
+- Afinidade < **30** → Xaréu rosna ao você entrar no canal dele
+- Afinidade < **50** → não consegue pegar a coleira; se já era dono, perde na próxima ação
 
-### � A Casinha do Xaréu (NOVO!)
+### IA (OpenAI)
+- 💬 Responde **menções no servidor** com personalidade canina
+- 💌 **DMs longas** entram no chat com IA, curtinhas viram comando de áudio
+- 🧩 Cada prompt inclui afinidade, humor, tags, **resumo do usuário e fatos memorizados**
+- ⏳ **Rate limit por usuário** via Redis
+- 🧠 **Memória semântica em uma chamada** — a IA retorna `{ reply, insight }` no mesmo JSON. Sem chamada extra de extração. Captura **fatos factuais** (gostos, profissão, sonhos, lugares) E **traços de comunicação** (sarcasmo, gírias, jeito de provocar). Resumo evolutivo do user é atualizado incrementalmente (nunca zera quando IA omite o campo)
+- 🎭 **EmotionEngine** — calcula relação (desconhecido / conhecido / amigo / melhor amigo), intensidade emocional, estilo de resposta e energia antes de chamar a IA — o tom muda de acordo
 
-**Agora o Xaréu tem um cantinho dele no servidor!**
+### Comandos
+| Slash | O que faz |
+|---|---|
+| `/help` | Explica como o Xaréu funciona + lista os comandos |
+| `/play <busca>` | Toca áudio com **autocomplete inteligente** — sugere até 25 áudios filtrados por substring em qualquer posição (ex: `ria` casa `ria-de-mim`, `padaria`, `queria`) |
+| `/petisco` | Ganha afinidade + toca som de mastigando no canal de voz |
+| `/coleira pegar\|passar\|largar\|quem` | Gerencia o dono — `pegar`/`passar` movem o bot na hora; `largar` volta pra casinha |
+| `/status` | Mostra sua relação com o Xaréu (afinidade, humor, fatos, nível: desconhecido/conhecido/amigo/melhor amigo) |
+| `/config casinha\|volume\|cooldown\|ai\|humor\|ver` | Configurações (admin). `humor 0-10` calibra o tom (suave / moderado / ácido / insano) |
 
-```
-😴 Ninguém online → Xaréu dorme (offline)
-🏠 Alguém entra → Xaréu acorda e vai pra casinha
-🐕 Você entra na casinha → Xaréu começa a te seguir!
-👋 Você sai → Xaréu volta pra casinha
-```
-
-**Como funciona:**
-1. Crie um canal de voz chamado **"Casinha do Xeréu"** no seu servidor
-2. Quando alguém entra no servidor, o Xaréu acorda e fica esperando na casinha
-3. Entre na casinha pra ele te seguir por todos os canais
-4. Se você sair ou trocar de canal, ele volta pra casinha esperando
-5. Quando não há ninguém online, ele dorme (desconecta)
-
-*É tipo ter um cachorro de verdade, mas sem precisar limpar cocô* 💩❌
-
-### 🎧 Sistema de Acompanhamento (a.k.a "Colado em você")
-
-```
-Você entra na casinha → Xaréu te segue! 🐕
-Você muda de canal → Xaréu vai junto 🏃‍♂️
-Você sai ou ele fica sozinho → Volta pra casinha 🏠
-```
-
-Agora ele não é mais tão grudento! Você precisa ir buscar ele na casinha primeiro 😏
-
-### 🐶 Sons e Reações
-
-- 🎵 **Late ao entrar** (porque educação é importante)
-- 🎲 **Late aleatoriamente** (intervalos de 10, 30, 45 ou 50 minutos)
-- 🔊 **Áudios personalizados** de até 5 segundos (manda um DM pra ele!)
-
-### 💬 Comandos via DM
-
-Manda uma DM pro Xaréu com:
-- `help` → Lista TODOS os sons que ele sabe fazer
-- `nome-do-audio` → Toca o áudio no canal onde ele tá
-
-**🎯 Busca Inteligente™** (valeu @joseildofilho!)
-```
-Você: "latido"
-Xaréu: 🔍 Achou "latido-unico.mp3"
-```
-Não precisa mais decorar nome exato. O Xaréu te entende! 🧠
-
----
-
-## 🦈 A Personalidade Única do Xaréu
-
-### Filosofia de Vida:
-1. **Zoar, mas com respeito** 😎
-2. **Presente, mas não invasivo** (tá bom, talvez um pouquinho)
-3. **Valoriza a matilha** 🐺
-
-### Comportamento Adaptativo:
-**Já implementado:**
-- 🏠 Tem uma casinha própria e dorme quando está sozinho
-- 🐕 Só segue quem entra na casinha dele
-- 😴 Acorda automaticamente quando alguém entra no servidor
-
-**Em breve:**
-- Latir mais pra quem brinca mais com ele
-- Ficar quietinho quando perceber que ninguém tá afim
-- Desenvolver personalidades únicas por servidor
-
-**É tipo ter um Tamagotchi, mas melhor e mais peludo** 🦴
+### Conversação inteligente
+- **Mencionar `@Xaréu`** em canal de texto → resposta contextual usando memória + emoção
+- **Mencionar `@Xaréu` em reply** de outra mensagem → o bot lê a mensagem original, carrega memória do autor original, e direciona a resposta a essa pessoa (mesmo se você só mandar a menção sem texto adicional)
+- **DM** → toda DM é conversa contínua com IA (frases curtas mantêm o contexto da resposta anterior). Pra tocar áudio, use `/play` no servidor — não dá mais pelo DM
+- **Onboarding por curiosidade** — quando o Xaréu ainda não conhece bem o usuário (poucos fatos OU afinidade < 50), ele anexa uma pergunta no final da resposta. Pool de **27 perguntas** misturando básicas (nome, cidade, profissão, time, música, comida) e zoeiras (apelido odiado, vergonha, mentira pros pais, mania esquisita, medo bobo, vício secreto, crush adolescente etc). Quando uma extração de memória produz fatos novos, a pergunta pendente é marcada como respondida (e nunca é refeita). Sem resposta? Volta ao pool após **24h**.
+- **Personalidade zoeira** — sarcasmo afetuoso calibrado pela relação:
+  - 💛 melhor amigo → zoa pra valer com base em fatos memorizados
+  - 🤝 amigo → provoca levemente
+  - 👋 conhecido → humor seguro, ainda mede
+  - 🚪 desconhecido → seco, sarcasmo curto sem efusividade
+- **Nível de humor por servidor** (`/config humor 0-10`) — perfis distintos no prompt:
+  - 0-3 → **suave**: amigável, fofo, sem sarcasmo
+  - 4-6 → **moderado**: brincalhão, ironia leve (default)
+  - 7-8 → **ácido**: sarcástico, debochado, irônico
+  - 9-10 → **insano**: drama teatral, ironia destrutiva, deboche absurdo
 
 ---
 
-## 🛣️ Roadmap (O que vem por aí)
-
-### 🦮 Sistema de Coleira
-```
-🎯 Quem tem a coleira = dono oficial do Xaréu
-📌 Xaréu segue APENAS quem tá com a coleira
-🔄 Coleira pode ser passada pra outra pessoa
-⏰ Só pode ter a coleira se estiver online
-```
-
-Disputa de coleira = novo meta do servidor 😂
-
-### 💤 Modo Descanso ✅ IMPLEMENTADO
-```
-Servidor vazio → Xaréu dorme (desconecta) 😴
-Alguém entra → Xaréu acorda e vai pra casinha 🏠
-Fica sozinho → Volta pra casinha automaticamente 🔄
-Ninguém online → Dorme de novo 💤
-```
-
-Porque até cachorro virtual precisa dormir. Agora implementado e funcionando!
-
-### 🎮 Futuras Features Loucas
-- [x] 🏠 Casinha do Xaréu com comportamento inteligente
-- [x] 😴 Sistema de dormir/acordar automático
-- [ ] Sistema de fome (precisa de petiscos virtuais)
-- [ ] Humor baseado em interações
-- [ ] Easter eggs secretos
-- [ ] Reações a palavras-chave
-- [ ] Sistema de truques (senta, rola, finge de morto)
-- [ ] Comando `!vem_ca_xareu` para chamá-lo da casinha
-
-*Tá maluco? Abre uma Issue e vamos conversar!* 💭
-
----
-
-## 🚀 Como Adotar o Xaréu
+## 🚀 Setup
 
 ### Pré-requisitos
-```bash
-Node.js 18+ (o Xaréu é moderno)
-npm ou yarn (escolha seu veneno)
-Token do Discord (obviamente)
-```
+- Node.js 20+
+- Docker + Docker Compose
+- Token do Discord ([Developer Portal](https://discord.com/developers/applications))
+- Chave da OpenAI (opcional — sem ela o bot usa respostas pré-definidas)
 
-### Instalação
+### 1. Clonar e instalar
 ```bash
-# Clone o repositório
-git clone https://github.com/seu-usuario/discord-voice-bot.git
+git clone <url-do-repo>
 cd discord-voice-bot
-
-# Instale as dependências
 npm install
-
-# Configure o .env
-echo "DISCORD_TOKEN=seu_token_aqui" > .env
-
-# Solte o Xaréu!
-npm run dev
+cp .env.example .env
+# edite .env com seu DISCORD_TOKEN, DISCORD_CLIENT_ID e OPENAI_API_KEY
 ```
 
-### Configuração do Bot no Discord
-1. Acesse [Discord Developer Portal](https://discord.com/developers/applications)
-2. Crie uma aplicação
-3. Ative estes intents:
-   - ✅ `MESSAGE CONTENT INTENT`
-   - ✅ `GUILD VOICE STATES`
-   - ✅ `GUILD MESSAGES`
-4. Gere o token e cole no `.env`
-5. Use este link de convite:
-```
-https://discord.com/api/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=3146752&scope=bot
-```
-
-### 🏠 Configurando a Casinha do Xaréu
-
-**Para ativar a funcionalidade da casinha:**
-
-1. No seu servidor Discord, crie um canal de voz
-2. Nomeie EXATAMENTE como: **"Casinha do Xeréu"**
-3. Pronto! O Xaréu já vai usar automaticamente
-
-**Comportamento:**
-- ✅ Se a casinha existir: Xaréu fica lá quando não estiver seguindo ninguém
-- ⚠️ Se não existir: Funciona no modo legado (segue todos automaticamente)
-
-### 📁 Adicionando Áudios
+### 2. Subir Postgres + Redis
 ```bash
-# Cole seus arquivos .mp3 em:
-audios/
-  ├── latido-unico.mp3
-  ├── bem-ti-vi.mp3
-  └── seu-audio-legal.mp3
+npm run docker:up
+```
+Por padrão, usamos as portas **5434 (Postgres)** e **6381 (Redis)** pra não conflitar com bancos locais. Ajuste em `.env` se precisar.
+
+### 3. Aplicar migrations
+```bash
+npm run prisma:migrate
 ```
 
-**Dica:** Áudios de até 5 segundos funcionam melhor! 🎵
+### 4. Registrar slash commands
+```bash
+# Globalmente (até 1h de propagação)
+npm run commands:register
+
+# Ou pra uma guilda específica (instantâneo)
+GUILD_ID=seu_guild_id npm run commands:register
+```
+
+### 5. Rodar
+```bash
+# Dev (hot reload)
+npm run dev
+
+# Produção (após build)
+npm run build && npm start
+```
+
+### Setup do bot no Discord
+1. Crie a aplicação em https://discord.com/developers/applications
+2. Em **Bot** → Privileged Gateway Intents, ative:
+   - `MESSAGE CONTENT INTENT` (necessário pra ler DMs e menções)
+3. Convide com permissões `3146752`:
+   ```
+   https://discord.com/api/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=3146752&scope=bot%20applications.commands
+   ```
+4. No servidor, crie um canal de voz com o nome **"Casinha do Xeréu"** (ou customize via `/config casinha <nome>`)
 
 ---
 
-## 🤝 Contribuições
+## 🐳 Docker (deploy)
 
-**O Xaréu cresce melhor quando treinado em grupo!** 🐕‍🦺
+Tudo em um comando:
+```bash
+docker compose --profile bot up -d --build
+```
+Sobe Postgres, Redis e o bot. As migrations rodam automaticamente no startup.
 
-### Como Contribuir:
-1. 🍴 Dê um fork no projeto
-2. 🌿 Crie uma branch (`git checkout -b feature/truque-novo`)
-3. 💻 Faça suas mudanças
-4. ✅ Commit (`git commit -m 'Ensinei o Xaréu a dar cambalhota'`)
-5. 📤 Push (`git push origin feature/truque-novo`)
-6. 🎯 Abra um Pull Request
+Logs:
+```bash
+npm run docker:logs
+```
 
-### ⚠️ Regras de Ouro para Manter o Xaréu sendo Xaréu:
+---
 
-**1. 🎭 Personalidade Inegociável**
-- ✨ Mantenha o tom zoeiro e descontraído
-- 🐕 Xaréu late, brinca e zoa — isso é essencial
-- 🚫 Nada de transformar ele num bot "profissional" e sem graça
-- 💛 Funcionalidades novas devem ter a cara dele
+## 🏗️ Arquitetura
 
-**2. 🧪 Teste Antes de Soltar o Bichinho**
-- ✅ Compile o projeto (`npm run build`)
-- 🎮 Teste localmente (`npm run dev`)
-- 🐛 Ninguém quer um Xaréu bugado latindo errado
+```
+src/
+├── Bot.ts                    # Composition root
+├── index.ts                  # Entry + graceful shutdown
+│
+├── config/
+│   ├── env.ts                # Validação de env via Zod
+│   └── constants.ts          # Constantes de comportamento
+│
+├── infrastructure/
+│   ├── database.ts           # Prisma client (singleton)
+│   ├── redis.ts              # Redis client (singleton)
+│   └── openai.ts             # OpenAI client (singleton)
+│
+├── repositories/             # Acesso a dados (Prisma)
+│   ├── UserRepository.ts
+│   ├── InteractionRepository.ts
+│   ├── UserMemoryRepository.ts
+│   ├── UserFactRepository.ts
+│   └── GuildConfigRepository.ts
+│
+├── events/
+│   ├── EventBus.ts           # Pub/sub interno
+│   └── types.ts              # Eventos tipados (XareuEvent)
+│
+├── services/                 # Regra de negócio
+│   ├── AudioService.ts       # I/O de áudio (filtro mp3, busca fuzzy)
+│   ├── AudioQueueService.ts  # Fila + cooldown por usuário
+│   ├── VoiceService.ts       # Conexões de voz (multi-guild)
+│   ├── IntelligenceService.ts    # Memória, afinidade, decay, tags
+│   ├── MoodService.ts            # Máquina de estados de humor
+│   ├── EmotionEngine.ts          # Relação + estilo + energia + hints (puro)
+│   ├── ContextBuilderService.ts  # Monta prompt da IA (personalidade + estado + facts + summary + histórico)
+│   ├── MemoryExtractionService.ts # Extrai facts/summary via OpenAI (background)
+│   ├── AIService.ts              # OpenAI + rate limit + fallback
+│   └── CommandService.ts         # DMs e menções
+│
+├── handlers/
+│   ├── MessageHandler.ts
+│   ├── VoiceStateHandler.ts
+│   └── InteractionHandler.ts # Roteia chatInput + autocomplete
+│
+├── commands/                 # Slash commands (alguns com autocomplete)
+│   ├── HelpCommand.ts
+│   ├── PlayCommand.ts        # com autocomplete fuzzy
+│   ├── PetiscoCommand.ts
+│   ├── ColeiraCommand.ts
+│   ├── StatusCommand.ts
+│   └── ConfigCommand.ts
+│
+├── scripts/
+│   └── registerCommands.ts   # Registro de slash commands
+│
+└── utils/
+    ├── logger.ts             # Pino estruturado
+    └── helpers.ts
+```
 
-**3. 📝 Documente Como Se Fosse Pro Seu Amigo**
-- 💬 Seja descritivo nos PRs
-- 🤓 Use os arquivos de documentação quando necessário
-- 🎯 Explique PORQUÊ você fez aquela mudança
+### Modelo de dados
+```
+User (afinidade, humor, xp, tags, lastInteraction)
+  ├─ Interaction[] (type, message, response, metadata)
+  ├─ UserMemory (summary, lastUpdatedAt) — 1:1
+  └─ UserFact[] (fact, confidence, lastSeenAt)
 
-### 📚 Documentação para Contribuidores
-- 📖 [CONTRIBUTING.md](CONTRIBUTING.md) - Guia completo de contribuição e padrões de código
-- 🏗️ [ARCHITECTURE.md](ARCHITECTURE.md) - Arquitetura detalhada do projeto
+GuildConfig (casinhaName, volume, cooldown, aiEnabled, leashOwnerId)
+```
 
-**Issues são bem-vindas!** Label `idea` para sugestões malucas 🚀
+### Memória semântica & camada emocional
+
+```
+Mensagem do usuário
+  ↓
+MessageHandler → CommandService.processMention/processDM
+  ↓
+AIService.respond
+  ├─ IntelligenceService.getMemory (afinidade, humor, dias, tags)
+  ├─ EmotionEngine.evaluate → { relationship, intensity, style, energy, hints }
+  ├─ QuestionService.resolveNextQuestion → pergunta de onboarding (se elegível)
+  ├─ guildConfigRepo.getOrCreate → humorLevel da guilda (DM = 5)
+  ├─ ContextBuilderService.build
+  │    ├─ PERSONALITY_BY_PROFILE[humorProfile] (suave/moderado/ácido/insano)
+  │    ├─ estado, memória (summary + facts), histórico, hints
+  │    └─ instrução de saída JSON: { reply, insight? }
+  └─ OpenAI chat.completions com response_format: json_object
+  ↓
+Parseia { reply, insight } com Zod
+  ├─ reply → enviado ao usuário
+  └─ insight (se != null) → MemoryExtractionService.persistInline (background)
+       ├─ dedup contra fatos existentes
+       ├─ persist UserFact[] + UserMemory.summary (preserva summary se IA omitir)
+       └─ marca pergunta pendente mais recente como respondida
+```
+
+**Mudança chave**: tudo em **uma única chamada OpenAI** — resposta + extração de insight no mesmo JSON. ~50% menos custo que arquitetura anterior (que fazia 2 chamadas em série) e insight perfeitamente alinhado ao contexto da resposta.
+
+**EmotionEngine** (puro, sem IA): mapeia afinidade → relação:
+- 0–19 → desconhecido (estilo seco, energia baixa)
+- 20–49 → conhecido (estilo neutro)
+- 50–79 → amigo (estilo amigável)
+- 80–100 → melhor amigo (estilo entusiasmado, hint de carinho)
+
+Hints contextuais: saudade (afinidade alta + sumiu há dias), animação (muitas interações recentes), modo "acordando" (sumiu há 7+ dias).
+
+### Fluxo de uma menção
+```
+Discord → MessageHandler → CommandService.processMention
+  → AIService.respond (consulta IntelligenceService.getMemory)
+    → memory: afinidade + humor + tags + histórico
+    → OpenAI chat.completions
+  → IntelligenceService.recordInteraction (atualiza afinidade/humor/tags)
+```
+
+### Robustez da camada de voz
+- `joinChannel` é async e usa `entersState(Ready, 10s)`: só toca áudio depois que o gateway de voz confirma — corrige o caso "bot diz que entrou mas Discord ainda mostra ele em outro canal"
+- Retry automático destruindo a conexão se o primeiro `Ready` não vier em 10s
+- WeakSet rastreia conexões com listeners já anexados — `joinVoiceChannel` reusa o objeto, sem vazamento de listeners
+- Debouncing de 600ms no `VoiceStateHandler` — trocas rápidas só processam a última, evitando o erro `Cannot perform IP discovery - socket closed` do `@discordjs/voice`
+
+---
+
+## 🧪 Qualidade
+
+```bash
+npm test            # 42 testes
+npm run lint        # ESLint flat config
+npm run format      # Prettier
+npm run build       # tsc strict
+```
+
+CI no GitHub Actions roda lint + format + build + test em cada PR.
+
+---
+
+## 🛣️ Roadmap
+
+Implementado:
+- [x] Memória por usuário com Postgres
+- [x] Afinidade + decay temporal
+- [x] Sistema de humor (6 estados)
+- [x] IA (OpenAI) com personalidade contextual
+- [x] **Memória semântica** (UserMemory + UserFact extraídos via OpenAI)
+- [x] **EmotionEngine** (relação, estilo, energia, intensidade)
+- [x] **ContextBuilderService** (prompt rico com facts + summary + histórico + emoção)
+- [x] **Respostas em reply** — Xaréu lê a mensagem original e responde direcionado ao autor
+- [x] **Autocomplete fuzzy no `/play`** — substring em qualquer posição
+- [x] **Onboarding por perguntas** — 27 perguntas (factuais e zoeiras) com TTL de 24h e marcação de respondida via extração
+- [x] **Single-call JSON** — resposta + insight numa só chamada OpenAI (50% menos custo)
+- [x] **Nível de humor configurável** (`/config humor 0-10`) — 4 perfis distintos no prompt
+- [x] **Extração de traços de comunicação** — IA captura sarcasmo, gírias, padrões de interação como facts
+- [x] Rate limit (Redis)
+- [x] Slash commands
+- [x] Sistema de coleira (com revalidação contínua de afinidade)
+- [x] Petiscos com som
+- [x] Multi-guild
+- [x] Graceful shutdown
+- [x] Docker compose
+- [x] CI
+
+A explorar:
+- [ ] TTS opcional (ElevenLabs/Coqui)
+- [ ] Reações com emoji por palavras-chave
+- [ ] Sistema de XP / níveis
+- [ ] Painel web de admin
+- [ ] Truques: senta, rola, finge de morto
+- [ ] Pet status assinado em embed (perfil)
+- [ ] Modo "Xaréu fala sozinho" — dispara mensagem após X horas sem ninguém
+
+---
+
+## 🤝 Contribuir
+
+Veja [CONTRIBUTING.md](CONTRIBUTING.md). PRs são muito bem-vindos!
+
+**Regras de ouro:**
+- Mantenha a personalidade zoeira (sem virar bot corporativo)
+- `npm test` deve passar
+- `npm run lint` zerado
+- Documente se mudou comportamento
 
 ---
 
@@ -286,39 +392,10 @@ audios/
 
 ---
 
-## 📊 Stats do Projeto
-
-```typescript
-const xareu = {
-  linhasCode: 300+,
-  latidosPorDia: '∞',
-  zueirasImplementadas: 'Muitas',
-  felicidadeGerada: 'Máxima 🎉'
-}
-```
-
----
-
 ## 📜 Licença
 
-Este projeto é **open-source** e livre como um cachorro sem coleira.
-
-```
-Use ✅
-Modifique ✅
-Distribua ✅
-Contribua ✅
-Deixe o Xaréu sozinho ❌
-```
+ISC. Use, modifique, distribua. Só não maltrate o cachorro.
 
 ---
 
-<div align="center">
-
-### 🐕 *"A vida é melhor com um Xaréu ao seu lado"*
-
-**Made with 💛 and many 🦴 by the community**
-
-[⬆ Voltar ao topo](#-xaréu--o-cachorro-mais-zoeiro-do-discord)
-
-</div>
+🐕 *"A vida é melhor com um Xaréu ao seu lado"*

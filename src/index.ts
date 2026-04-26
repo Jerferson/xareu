@@ -1,30 +1,29 @@
-import 'dotenv/config'
 import { DiscordBot } from './Bot'
+import { logger } from './utils/logger'
 
-/**
- * Ponto de entrada da aplicação
- */
-async function main() {
+async function main(): Promise<void> {
+  const bot = new DiscordBot()
+
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info({ signal }, '📡 Sinal recebido, encerrando')
+    await bot.stop()
+    process.exit(0)
+  }
+
+  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
+  process.on('unhandledRejection', (reason) => logger.error({ reason }, 'unhandledRejection'))
+  process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'uncaughtException')
+    void bot.stop().finally(() => process.exit(1))
+  })
+
   try {
-    const bot = new DiscordBot()
-    await bot.start(process.env.DISCORD_TOKEN!)
-
-    // Trata sinais de encerramento
-    process.on('SIGINT', async () => {
-      console.log('\n🛑 Recebido SIGINT, encerrando...')
-      await bot.stop()
-      process.exit(0)
-    })
-
-    process.on('SIGTERM', async () => {
-      console.log('\n🛑 Recebido SIGTERM, encerrando...')
-      await bot.stop()
-      process.exit(0)
-    })
-  } catch (error) {
-    console.error('❌ Erro fatal ao iniciar o bot:', error)
+    await bot.start()
+  } catch (err) {
+    logger.fatal({ err }, '❌ Erro fatal ao iniciar')
     process.exit(1)
   }
 }
 
-main()
+void main()

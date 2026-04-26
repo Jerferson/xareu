@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+prisma/migrations
+audios
+*.lock
+package-lock.json

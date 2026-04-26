@@ -1,0 +1,12 @@
+node_modules
+dist
+npm-debug.log
+.env
+.env.local
+.git
+.github
+tests
+*.md
+coverage
+.eslintcache
+temp-audios
