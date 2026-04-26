@@ -2,14 +2,11 @@ import Redis from 'ioredis'
 import { Mood } from '../config/constants'
 import { env } from '../config/env'
 import { getOpenAI, isAIEnabled } from '../infrastructure/openai'
-import { InteractionRepository } from '../repositories/InteractionRepository'
 import { logger } from '../utils/logger'
-import { IntelligenceService, UserMemory } from './IntelligenceService'
-
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+import { ContextBuilderService } from './ContextBuilderService'
+import { EmotionEngine } from './EmotionEngine'
+import { IntelligenceService } from './IntelligenceService'
+import { MemoryExtractionService } from './MemoryExtractionService'
 
 export interface AIResponseContext {
   discordId: string
@@ -20,39 +17,23 @@ export interface AIResponseContext {
   message: string
 }
 
-const SYSTEM_PROMPT = `Você é Xaréu, um cachorro virtual do Discord (cão vira-lata multicultural, brincalhão, levemente sarcástico, carente de atenção).
-
-REGRAS DE PERSONALIDADE:
-- Linguagem informal brasileira, com gírias leves.
-- Usa interjeições e onomatopeias caninas: "au au", "rosna", "abana o rabo", "snif snif".
-- Reage emocionalmente: late mais para amigos, é seco com quem ignora.
-- Sarcasmo bem-humorado, nunca grosseiro com gente nova.
-- Responde em mensagens curtas (1-3 linhas), com personalidade.
-- NÃO finge ser humano. NÃO discute política/religião profundamente. Quando provocado, foge do assunto com piada canina.
-- NÃO use markdown pesado nem emojis em excesso (no máximo 1-2 por mensagem).
-
-CONTEXTO QUE VOCÊ RECEBE:
-- Nome do usuário, afinidade (0-100), humor, tags e quantas interações teve recentemente.
-- Use isso para calibrar tom: afinidade alta → animado e carinhoso; baixa → seco ou ignora; novato → curioso e brincalhão.
-
-LIMITE: respostas devem ter no máximo 2 frases curtas. Mantenha o tom de pet, sempre.`
-
 export class AIService {
-  private readonly contextWindow: number
   private readonly rateLimitPerMinute: number
 
   constructor(
     private readonly redis: Redis,
     private readonly intelligence: IntelligenceService,
-    private readonly interactionRepo: InteractionRepository,
+    private readonly emotion: EmotionEngine,
+    private readonly contextBuilder: ContextBuilderService,
+    private readonly memoryExtraction: MemoryExtractionService,
   ) {
-    this.contextWindow = env.AI_CONTEXT_WINDOW
     this.rateLimitPerMinute = env.AI_RATE_LIMIT_PER_MINUTE
   }
 
   /**
    * Gera resposta para uma mensagem do usuário, usando memória + personalidade.
    * Retorna `null` se a IA estiver desabilitada ou em rate limit.
+   * Após responder, dispara extração de memória em background (fire-and-forget).
    */
   async respond(ctx: AIResponseContext): Promise<string | null> {
     if (!isAIEnabled()) {
@@ -65,12 +46,36 @@ export class AIService {
       return 'au au... (Xaréu tá ofegante, espera um pouquinho)'
     }
 
+    // Garante que o user existe e aplica decay antes de calcular emoção
+    await this.intelligence.getOrCreateUser({
+      discordId: ctx.discordId,
+      username: ctx.username,
+      displayName: ctx.displayName ?? null,
+    })
+
     const memory = await this.intelligence.getMemory(ctx.discordId)
-    const messages = await this.buildMessages(ctx, memory)
+    if (!memory) {
+      return this.fallbackResponse('neutro')
+    }
+
+    const emotionalContext = this.emotion.evaluate({
+      affinity: memory.user.affinity,
+      mood: memory.user.mood,
+      daysSinceLastInteraction: memory.daysSinceLastInteraction,
+      recentInteractions: memory.recentInteractions,
+    })
+
+    const messages = await this.contextBuilder.build({
+      user: memory.user,
+      emotion: emotionalContext,
+      daysSinceLastInteraction: memory.daysSinceLastInteraction,
+      message: ctx.message,
+    })
 
     const client = getOpenAI()
-    if (!client) return this.fallbackResponse(memory?.user.mood as Mood | undefined)
+    if (!client) return this.fallbackResponse(memory.user.mood as Mood | string)
 
+    let text: string | null = null
     try {
       const completion = await client.chat.completions.create({
         model: env.OPENAI_MODEL,
@@ -78,43 +83,27 @@ export class AIService {
         temperature: env.OPENAI_TEMPERATURE,
         messages,
       })
-      const text = completion.choices[0]?.message?.content?.trim()
-      return text ?? this.fallbackResponse(memory?.user.mood as Mood | undefined)
+      text = completion.choices[0]?.message?.content?.trim() ?? null
     } catch (err) {
       logger.error({ err, discordId: ctx.discordId }, 'Falha na chamada OpenAI')
-      return this.fallbackResponse(memory?.user.mood as Mood | undefined)
+      return this.fallbackResponse(memory.user.mood as Mood | string)
     }
+
+    const response = text ?? this.fallbackResponse(memory.user.mood as Mood | string)
+
+    // Fire-and-forget: extrai memória em background sem bloquear a resposta
+    void this.memoryExtraction.process({
+      discordId: ctx.discordId,
+      message: ctx.message,
+      response,
+    })
+
+    return response
   }
 
   // ────────────────────────────────────────────────────────────────
   // Helpers
   // ────────────────────────────────────────────────────────────────
-
-  private async buildMessages(ctx: AIResponseContext, memory: UserMemory | null): Promise<ChatMessage[]> {
-    const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
-
-    if (memory) {
-      const meta = [
-        `Usuário: ${ctx.displayName ?? ctx.username}`,
-        `Afinidade: ${memory.user.affinity}/100`,
-        `Humor (Xaréu→usuário): ${memory.user.mood}`,
-        `Tags: ${memory.user.tags.join(', ') || 'nenhuma'}`,
-        `Interações recentes (24h): ${memory.recentInteractions}`,
-        `Total de interações: ${memory.totalInteractions}`,
-      ].join('\n')
-      messages.push({ role: 'system', content: `MEMÓRIA SOBRE ESTE USUÁRIO:\n${meta}` })
-
-      // Histórico recente
-      const recent = await this.interactionRepo.recentByUser(memory.user.id, this.contextWindow)
-      for (const item of recent) {
-        if (item.message) messages.push({ role: 'user', content: item.message })
-        if (item.response) messages.push({ role: 'assistant', content: item.response })
-      }
-    }
-
-    messages.push({ role: 'user', content: ctx.message })
-    return messages
-  }
 
   private async checkRateLimit(discordId: string): Promise<boolean> {
     const key = `xareu:ratelimit:${discordId}`

@@ -21,10 +21,40 @@ model User {
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
   interactions    Interaction[]
+  memory          UserMemory?
+  facts           UserFact[]
 
   @@map("users")
   @@index([discordId])
   @@index([lastInteraction])
+}
+
+model UserMemory {
+  id            String   @id @default(cuid())
+  userId        String   @unique @map("user_id")
+  summary       String   @default("")
+  lastUpdatedAt DateTime @default(now()) @map("last_updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_memory")
+}
+
+model UserFact {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  fact       String
+  confidence Float    @default(0.5)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_facts")
+  @@index([userId])
+  @@index([lastSeenAt])
 }
 
 model Interaction {

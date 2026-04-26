@@ -62,8 +62,10 @@
 ### IA (OpenAI)
 - 💬 Responde **menções no servidor** com personalidade canina
 - 💌 **DMs longas** entram no chat com IA, curtinhas viram comando de áudio
-- 🧩 Cada prompt inclui afinidade, humor, tags e histórico recente do usuário
+- 🧩 Cada prompt inclui afinidade, humor, tags, **resumo do usuário e fatos memorizados**
 - ⏳ **Rate limit por usuário** via Redis
+- 🧠 **Memória semântica** — após cada conversa relevante, o Xaréu extrai fatos ("gosta de X", "trabalha com Y") e mantém um resumo evolutivo de quem você é
+- 🎭 **EmotionEngine** — calcula relação (desconhecido / conhecido / amigo / melhor amigo), intensidade emocional, estilo de resposta e energia antes de chamar a IA — o tom muda de acordo
 
 ### Comandos
 | Slash | O que faz |
@@ -169,6 +171,8 @@ src/
 ├── repositories/             # Acesso a dados (Prisma)
 │   ├── UserRepository.ts
 │   ├── InteractionRepository.ts
+│   ├── UserMemoryRepository.ts
+│   ├── UserFactRepository.ts
 │   └── GuildConfigRepository.ts
 │
 ├── events/
@@ -179,10 +183,13 @@ src/
 │   ├── AudioService.ts       # I/O de áudio (filtro mp3, busca fuzzy)
 │   ├── AudioQueueService.ts  # Fila + cooldown por usuário
 │   ├── VoiceService.ts       # Conexões de voz (multi-guild)
-│   ├── IntelligenceService.ts # Memória, afinidade, decay, tags
-│   ├── MoodService.ts        # Máquina de estados de humor
-│   ├── AIService.ts          # OpenAI + rate limit + fallback
-│   └── CommandService.ts     # DMs e menções
+│   ├── IntelligenceService.ts    # Memória, afinidade, decay, tags
+│   ├── MoodService.ts            # Máquina de estados de humor
+│   ├── EmotionEngine.ts          # Relação + estilo + energia + hints (puro)
+│   ├── ContextBuilderService.ts  # Monta prompt da IA (personalidade + estado + facts + summary + histórico)
+│   ├── MemoryExtractionService.ts # Extrai facts/summary via OpenAI (background)
+│   ├── AIService.ts              # OpenAI + rate limit + fallback
+│   └── CommandService.ts         # DMs e menções
 │
 ├── handlers/
 │   ├── MessageHandler.ts
@@ -208,10 +215,42 @@ src/
 ### Modelo de dados
 ```
 User (afinidade, humor, xp, tags, lastInteraction)
-  └─ Interaction[] (type, message, response, metadata)
+  ├─ Interaction[] (type, message, response, metadata)
+  ├─ UserMemory (summary, lastUpdatedAt) — 1:1
+  └─ UserFact[] (fact, confidence, lastSeenAt)
 
 GuildConfig (casinhaName, volume, cooldown, aiEnabled, leashOwnerId)
 ```
+
+### Memória semântica & camada emocional
+
+```
+Mensagem do usuário
+  ↓
+MessageHandler → CommandService.processMention/processDM
+  ↓
+AIService.respond
+  ├─ IntelligenceService.getMemory (afinidade, humor, dias, tags)
+  ├─ EmotionEngine.evaluate → { relationship, intensity, style, energy, hints }
+  ├─ ContextBuilderService.build → prompt completo (personalidade + estado + facts + summary + histórico)
+  └─ OpenAI chat.completions
+  ↓
+Resposta enviada ao usuário
+  ↓ (em background, fire-and-forget)
+MemoryExtractionService.process
+  ├─ heurística shouldExtract (tamanho + palavras de auto-revelação)
+  ├─ OpenAI com response_format json_object → { new_facts, updated_summary, confidence }
+  ├─ validação Zod
+  └─ persiste em UserFact (dedup) + UserMemory (summary incremental)
+```
+
+**EmotionEngine** (puro, sem IA): mapeia afinidade → relação:
+- 0–19 → desconhecido (estilo seco, energia baixa)
+- 20–49 → conhecido (estilo neutro)
+- 50–79 → amigo (estilo amigável)
+- 80–100 → melhor amigo (estilo entusiasmado, hint de carinho)
+
+Hints contextuais: saudade (afinidade alta + sumiu há dias), animação (muitas interações recentes), modo "acordando" (sumiu há 7+ dias).
 
 ### Fluxo de uma menção
 ```
@@ -250,10 +289,13 @@ Implementado:
 - [x] Afinidade + decay temporal
 - [x] Sistema de humor (6 estados)
 - [x] IA (OpenAI) com personalidade contextual
+- [x] **Memória semântica** (UserMemory + UserFact extraídos via OpenAI)
+- [x] **EmotionEngine** (relação, estilo, energia, intensidade)
+- [x] **ContextBuilderService** (prompt rico com facts + summary + histórico + emoção)
 - [x] Rate limit (Redis)
 - [x] Slash commands
-- [x] Sistema de coleira
-- [x] Petiscos
+- [x] Sistema de coleira (com revalidação contínua de afinidade)
+- [x] Petiscos com som
 - [x] Multi-guild
 - [x] Graceful shutdown
 - [x] Docker compose

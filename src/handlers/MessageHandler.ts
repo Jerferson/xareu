@@ -19,17 +19,30 @@ export class MessageHandler {
       return
     }
 
-    // Menção ao bot no servidor
     const botId = message.client.user?.id
     if (!botId) return
-    if (!message.mentions.users.has(botId)) return
+
+    const isMention = message.mentions.users.has(botId)
+    logger.info(
+      {
+        author: message.author.tag,
+        guildId: message.guild.id,
+        channel: message.channel.id,
+        isMention,
+        contentPreview: message.content.slice(0, 80),
+      },
+      '✉️ mensagem em servidor recebida',
+    )
+
+    if (!isMention) return
 
     const config = await this.guildConfigRepo.getOrCreate(message.guild.id)
     if (!config.aiEnabled) {
-      logger.debug({ guildId: message.guild.id }, 'IA desativada — ignorando menção')
+      logger.info({ guildId: message.guild.id }, '🚫 IA desativada — ignorando menção')
       return
     }
 
+    logger.info({ author: message.author.tag }, '📣 menção válida — processando com IA')
     await this.commandService.processMention(message)
   }
 }
