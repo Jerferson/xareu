@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: xareu
+          POSTGRES_PASSWORD: xareu
+          POSTGRES_DB: xareu
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+
+    env:
+      DATABASE_URL: postgresql://xareu:xareu@localhost:5432/xareu
+      REDIS_URL: redis://localhost:6379
+      DISCORD_TOKEN: ci-token
+      OPENAI_API_KEY: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Type check + build
+        run: npm run build
+
+      - name: Test
+        run: npm test

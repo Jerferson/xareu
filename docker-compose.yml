@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xareu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xareu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xareu}
+      POSTGRES_DB: ${POSTGRES_DB:-xareu}
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xareu} -d ${POSTGRES_DB:-xareu}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: xareu-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6381}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    container_name: xareu-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xareu}:${POSTGRES_PASSWORD:-xareu}@postgres:5432/${POSTGRES_DB:-xareu}
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./audios:/app/audios:ro
+    profiles:
+      - bot
+
+volumes:
+  postgres_data:
+  redis_data:

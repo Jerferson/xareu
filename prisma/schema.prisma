@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String        @id @default(cuid())
+  discordId       String        @unique @map("discord_id")
+  username        String
+  displayName     String?       @map("display_name")
+  affinity        Int           @default(50)
+  mood            String        @default("neutro")
+  xp              Int           @default(0)
+  tags            String[]      @default([])
+  lastInteraction DateTime      @default(now()) @map("last_interaction")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  interactions    Interaction[]
+
+  @@map("users")
+  @@index([discordId])
+  @@index([lastInteraction])
+}
+
+model Interaction {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  guildId   String?  @map("guild_id")
+  channelId String?  @map("channel_id")
+  type      String
+  message   String?
+  response  String?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("interactions")
+  @@index([userId, createdAt])
+  @@index([guildId, createdAt])
+}
+
+model GuildConfig {
+  id            String   @id @default(cuid())
+  guildId       String   @unique @map("guild_id")
+  casinhaName   String   @default("Casinha do Xeréu") @map("casinha_name")
+  volume        Float    @default(1.0)
+  audioCooldown Int      @default(5) @map("audio_cooldown")
+  aiEnabled     Boolean  @default(true) @map("ai_enabled")
+  leashOwnerId  String?  @map("leash_owner_id")
+  language      String   @default("pt-BR")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("guild_config")
+  @@index([guildId])
+}

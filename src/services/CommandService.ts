@@ -1,75 +1,223 @@
-import { Message } from 'discord.js'
+import { GuildMember, Message } from 'discord.js'
+import { GuildConfigRepository } from '../repositories/GuildConfigRepository'
+import { logger } from '../utils/logger'
+import { AIService } from './AIService'
+import { AudioQueueService } from './AudioQueueService'
 import { AudioService } from './AudioService'
+import { IntelligenceService } from './IntelligenceService'
 import { VoiceService } from './VoiceService'
 
 /**
- * Serviço responsável pelo processamento de comandos via DM
+ * Serviço para comandos por DM e mensagens livres com IA.
  */
 export class CommandService {
-  private audioService: AudioService
-  private voiceService: VoiceService
+  constructor(
+    private readonly audioService: AudioService,
+    private readonly audioQueue: AudioQueueService,
+    private readonly voiceService: VoiceService,
+    private readonly intelligence: IntelligenceService,
+    private readonly aiService: AIService,
+    private readonly guildConfigRepo: GuildConfigRepository,
+  ) {}
 
-  constructor(audioService: AudioService, voiceService: VoiceService) {
-    this.audioService = audioService
-    this.voiceService = voiceService
-  }
+  // ────────────────────────────────────────────────────────────────
+  // DM
+  // ────────────────────────────────────────────────────────────────
 
-  /**
-   * Lista todos os áudios disponíveis
-   */
-  async listAvailableAudios(message: Message): Promise<void> {
-    console.log('📋 Comando help recebido')
-
-    const audioList = this.audioService.listAvailableAudios()
-
-    if (audioList.length === 0) {
-      await message.reply('📂 Nenhum áudio encontrado!')
-      return
-    }
-
-    const formattedList = audioList.join('\n• ')
-
-    await message.reply(
-      `🎵 **Áudios disponíveis:**\n• ${formattedList}\n\n💡 Digite o nome do áudio para tocar!`
-    )
-  }
-
-  /**
-   * Processa um comando de áudio
-   */
-  async processAudioCommand(message: Message, audioName: string): Promise<void> {
-    const { connection, guildName } = await this.voiceService.findActiveConnection()
-
-    if (!connection) {
-      console.log('⏭️  Bot não está em nenhum canal de voz')
-      await message.reply('❌ Não estou conectado em nenhum canal de voz no momento!')
-      return
-    }
-
-    const audioFileName = this.voiceService.getBestMatchingAudio(audioName)
-
-    if (audioFileName.length === 0) {
-      console.log(`⏭️  Nenhum áudio encontrado para sua busca`)
-    }
-
-    await message.reply(`🔊 Tocando "${audioFileName}" no servidor: ${guildName}`)
-
-    this.voiceService.playAudioByName(audioFileName, connection)
-  }
-
-  /**
-   * Processa uma mensagem DM
-   */
   async processDM(message: Message): Promise<void> {
-    console.log(`📨 DM recebida de ${message.author.tag}: "${message.content}"`)
+    const content = message.content.trim()
+    if (!content) return
+    logger.info({ author: message.author.tag, content }, '📨 DM recebida')
 
-    const command = message.content.trim().toLowerCase()
+    const lower = content.toLowerCase()
 
-    if (command === 'help') {
-      await this.listAvailableAudios(message)
+    if (lower === 'help' || lower === '!help' || lower === '?help') {
+      await this.sendAudioList(message)
       return
     }
 
-    await this.processAudioCommand(message, command)
+    if (lower === 'status') {
+      await this.sendStatus(message)
+      return
+    }
+
+    // Heurística: mensagens curtas sem espaço viram tentativa de áudio.
+    // Frases (mais de 3 palavras) viram conversa com a IA.
+    const wordCount = content.split(/\s+/).length
+    if (wordCount <= 2) {
+      await this.tryPlayAudioFromDM(message, content)
+      return
+    }
+
+    await this.respondWithAI(message, content)
+  }
+
+  private async sendAudioList(message: Message): Promise<void> {
+    const audios = this.audioService.listAvailableAudios()
+    if (audios.length === 0) {
+      await message.reply('📂 Nenhum áudio na biblioteca!')
+      return
+    }
+    const chunks = this.chunkList(audios, 50)
+    await message.reply(
+      `🎵 **Áudios disponíveis** (${audios.length}):\n• ${chunks[0].join('\n• ')}\n\n💡 Mande o nome (ou parte dele) pra tocar.`,
+    )
+    for (let i = 1; i < chunks.length; i++) {
+      await message.reply(`• ${chunks[i].join('\n• ')}`)
+    }
+  }
+
+  private async sendStatus(message: Message): Promise<void> {
+    const guilds = this.voiceService.listActiveGuilds()
+    if (guilds.length === 0) {
+      await message.reply('😴 Tô fora de qualquer canal de voz agora.')
+      return
+    }
+    const memory = await this.intelligence.getMemory(message.author.id)
+    const lines = [
+      `🎧 Conectado em ${guilds.length} servidor(es): ${guilds.map((g) => g.guildName).join(', ')}`,
+    ]
+    if (memory) {
+      lines.push(
+        `🦴 Sua afinidade comigo: **${memory.user.affinity}/100** (humor: ${memory.user.mood})`,
+        `📊 Total de interações: ${memory.totalInteractions} | recentes: ${memory.recentInteractions}`,
+        memory.user.tags.length ? `🏷️ Tags: ${memory.user.tags.join(', ')}` : '',
+      )
+    }
+    await message.reply(lines.filter(Boolean).join('\n'))
+  }
+
+  private async tryPlayAudioFromDM(message: Message, query: string): Promise<void> {
+    const guilds = this.voiceService.listActiveGuilds()
+    if (guilds.length === 0) {
+      await message.reply('❌ Não tô em nenhum canal de voz agora!')
+      return
+    }
+    if (guilds.length > 1) {
+      await message.reply(
+        `🔀 Tô em vários servidores (${guilds.map((g) => g.guildName).join(', ')}). Use /play no servidor que você quer.`,
+      )
+      return
+    }
+    const target = guilds[0]
+    const connection = this.voiceService.getConnection(target.guildId)
+    if (!connection) {
+      await message.reply('❌ Conexão de voz indisponível.')
+      return
+    }
+
+    const match = this.audioService.findBestMatch(query)
+    if (!match) {
+      await message.reply(`🤷 Não achei nada parecido com "${query}".`)
+      return
+    }
+
+    const config = await this.guildConfigRepo.getOrCreate(target.guildId)
+    const result = this.audioQueue.enqueue({
+      guildId: target.guildId,
+      userId: message.author.id,
+      fileName: match.fileName,
+      cooldownSeconds: config.audioCooldown,
+      volume: config.volume,
+      connection,
+    })
+
+    if (!result.ok) {
+      await message.reply(`⏳ Calma aí, espera ${result.cooldownRemaining}s antes de tocar de novo.`)
+      return
+    }
+
+    await message.reply(`🔊 Tocando "${match.fileName}" em **${target.guildName}**`)
+
+    await this.intelligence.recordInteraction({
+      discordId: message.author.id,
+      username: message.author.username,
+      displayName: message.author.displayName ?? null,
+      type: 'audio_played',
+      guildId: target.guildId,
+      message: match.fileName,
+    })
+  }
+
+  private async respondWithAI(message: Message, content: string): Promise<void> {
+    if ('sendTyping' in message.channel) {
+      await message.channel.sendTyping().catch(() => undefined)
+    }
+    const response = await this.aiService.respond({
+      discordId: message.author.id,
+      username: message.author.username,
+      displayName: message.author.displayName ?? null,
+      message: content,
+    })
+    if (!response) return
+    await this.safeReply(message, response)
+    await this.intelligence.recordInteraction({
+      discordId: message.author.id,
+      username: message.author.username,
+      displayName: message.author.displayName ?? null,
+      type: 'dm_text',
+      message: content,
+      response,
+    })
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Menções no servidor
+  // ────────────────────────────────────────────────────────────────
+
+  async processMention(message: Message): Promise<void> {
+    if (!message.guild) return
+    const member = message.member as GuildMember | null
+    if (!member) return
+
+    const cleaned = message.content.replace(new RegExp(`<@!?${message.client.user?.id}>`, 'g'), '').trim()
+    if (!cleaned) return
+
+    if ('sendTyping' in message.channel) {
+      await message.channel.sendTyping().catch(() => undefined)
+    }
+    const response = await this.aiService.respond({
+      discordId: member.id,
+      username: member.user.username,
+      displayName: member.displayName,
+      guildId: message.guild.id,
+      channelId: message.channel.id,
+      message: cleaned,
+    })
+    if (!response) return
+    await this.safeReply(message, response)
+    await this.intelligence.recordInteraction({
+      discordId: member.id,
+      username: member.user.username,
+      displayName: member.displayName,
+      type: 'mention',
+      guildId: message.guild.id,
+      channelId: message.channel.id,
+      message: cleaned,
+      response,
+    })
+  }
+
+  private chunkList<T>(items: T[], size: number): T[][] {
+    const out: T[][] = []
+    for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+    return out
+  }
+
+  /**
+   * Tenta `message.reply()`; se falhar (ex: sem permissão de Read Message History),
+   * cai pro `channel.send()`.
+   */
+  private async safeReply(message: Message, content: string): Promise<void> {
+    try {
+      await message.reply(content)
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'reply falhou, usando channel.send')
+      if ('send' in message.channel) {
+        await message.channel
+          .send(content)
+          .catch((sendErr) => logger.error({ err: sendErr }, 'channel.send também falhou'))
+      }
+    }
   }
 }
