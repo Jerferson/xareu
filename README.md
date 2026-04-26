@@ -25,6 +25,7 @@
   - **Auto-coleira**: quando ninguém tem a coleira, o primeiro a entrar na casinha vira o novo dono automaticamente
   - **Confiança mínima**: Xaréu só obedece quem tem **afinidade ≥ 50** — abaixo disso ele rosna; ganhe confiança com `/petisco` ou conversando com ele
 - 🐺 **Rosna pra desconhecidos** — quem tem afinidade < 30 escuta `rosnando.mp3` em vez do latido quando o Xaréu entra no canal
+- 🦴 **Mastiga ao receber petisco** — cada `/petisco` toca `mastigando-crocante.mp3` no canal de voz se o bot estiver conectado
 - 🥚 **Novos usuários começam com afinidade 20** — precisam interagir um pouco antes de cair nas graças do Xaréu
 - 🪃 **Debouncing de 600ms** — trocas rápidas de canal não disparam o erro `IP discovery - socket closed`
 - ♻️ **State recovery** — se o processo reiniciar, o bot infere a partir do canal atual se está na casinha ou seguindo

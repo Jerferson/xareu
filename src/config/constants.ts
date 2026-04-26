@@ -23,6 +23,8 @@ export const AUDIO_CONFIG = {
   DEFAULT_BARK_FILE: 'latido-unico.mp3',
   /** Áudio de rosnado pra quando Xaréu não confia no usuário */
   ROSNADO_FILE: 'rosnando.mp3',
+  /** Áudio que toca quando alguém dá um petisco */
+  PETISCO_FILE: 'mastigando-crocante.mp3',
   /** Extensões aceitas */
   SUPPORTED_EXTENSIONS: ['.mp3'] as const,
 } as const
