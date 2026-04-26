@@ -67,4 +67,48 @@ describe('AudioService', () => {
     const service = new AudioService(path.join(tmpDir, 'nao-existe'))
     expect(service.listAudioFiles()).toEqual([])
   })
+
+  describe('searchAudios', () => {
+    beforeEach(() => {
+      // pasta com nomes que cobrem diferentes posições da substring
+      fs.writeFileSync(path.join(tmpDir, 'ria-de-mim.mp3'), 'fake')
+      fs.writeFileSync(path.join(tmpDir, 'padaria.mp3'), 'fake')
+      fs.writeFileSync(path.join(tmpDir, 'para-sempre-eu-queria-voce.mp3'), 'fake')
+      fs.writeFileSync(path.join(tmpDir, 'algo-sem-relacao.mp3'), 'fake')
+    })
+
+    it('casa substring em qualquer posição (início, meio, fim)', () => {
+      const service = new AudioService(tmpDir)
+      const results = service.searchAudios('ria').map((m) => m.fileName)
+      expect(results).toContain('ria-de-mim.mp3')
+      expect(results).toContain('padaria.mp3')
+      expect(results).toContain('para-sempre-eu-queria-voce.mp3')
+    })
+
+    it('matches contendo a substring vêm antes dos não-matches', () => {
+      const service = new AudioService(tmpDir)
+      const results = service.searchAudios('ria').map((m) => m.fileName)
+      const algoIdx = results.indexOf('algo-sem-relacao.mp3')
+      const padariaIdx = results.indexOf('padaria.mp3')
+      expect(padariaIdx).toBeLessThan(algoIdx)
+    })
+
+    it('respeita o limit', () => {
+      const service = new AudioService(tmpDir)
+      expect(service.searchAudios('ria', 2)).toHaveLength(2)
+    })
+
+    it('query vazia retorna todos ordenados alfabeticamente', () => {
+      const service = new AudioService(tmpDir)
+      const results = service.searchAudios('').map((m) => m.fileName)
+      const sorted = [...results].sort((a, b) => a.localeCompare(b))
+      expect(results).toEqual(sorted)
+    })
+
+    it('é case-insensitive', () => {
+      const service = new AudioService(tmpDir)
+      const results = service.searchAudios('RIA').map((m) => m.fileName)
+      expect(results).toContain('padaria.mp3')
+    })
+  })
 })

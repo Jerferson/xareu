@@ -6,6 +6,21 @@ export class InteractionHandler {
   constructor(private readonly commands: Map<string, XareuCommand>) {}
 
   async handle(interaction: Interaction): Promise<void> {
+    if (interaction.isAutocomplete()) {
+      const command = this.commands.get(interaction.commandName)
+      if (!command?.autocomplete) {
+        await interaction.respond([]).catch(() => undefined)
+        return
+      }
+      try {
+        await command.autocomplete(interaction)
+      } catch (err) {
+        logger.error({ err, command: interaction.commandName }, 'Erro no autocomplete')
+        await interaction.respond([]).catch(() => undefined)
+      }
+      return
+    }
+
     if (!interaction.isChatInputCommand()) return
     const command = this.commands.get(interaction.commandName)
     if (!command) {

@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   SlashCommandOptionsOnlyBuilder,
@@ -8,4 +9,5 @@ import {
 export interface XareuCommand {
   data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder
   execute(interaction: ChatInputCommandInteraction): Promise<void>
+  autocomplete?(interaction: AutocompleteInteraction): Promise<void>
 }

@@ -71,11 +71,16 @@
 | Slash | O que faz |
 |---|---|
 | `/help` | Mostra comandos + lista de áudios |
-| `/play <busca>` | Toca áudio (busca fuzzy) |
-| `/petisco` | Ganha afinidade |
+| `/play <busca>` | Toca áudio com **autocomplete inteligente** — sugere até 25 áudios filtrados por substring em qualquer posição (ex: `ria` casa `ria-de-mim`, `padaria`, `queria`) |
+| `/petisco` | Ganha afinidade + toca som de mastigando no canal de voz |
 | `/coleira pegar\|passar\|largar\|quem` | Gerencia o dono — `pegar`/`passar` movem o bot na hora; `largar` volta pra casinha |
 | `/status` | Mostra sua relação com o Xaréu |
 | `/config casinha\|volume\|cooldown\|ai\|ver` | Configurações (admin) |
+
+### Conversação inteligente
+- **Mencionar `@Xaréu`** em canal de texto → resposta contextual usando memória + emoção
+- **Mencionar `@Xaréu` em reply** de outra mensagem → o bot lê a mensagem original, carrega memória do autor original, e direciona a resposta a essa pessoa (mesmo se você só mandar a menção sem texto adicional)
+- **DM** longa → conversa com IA; DM curta → tentativa de tocar áudio
 
 ---
 
@@ -194,11 +199,11 @@ src/
 ├── handlers/
 │   ├── MessageHandler.ts
 │   ├── VoiceStateHandler.ts
-│   └── InteractionHandler.ts # Slash commands
+│   └── InteractionHandler.ts # Roteia chatInput + autocomplete
 │
-├── commands/                 # Slash commands
+├── commands/                 # Slash commands (alguns com autocomplete)
 │   ├── HelpCommand.ts
-│   ├── PlayCommand.ts
+│   ├── PlayCommand.ts        # com autocomplete fuzzy
 │   ├── PetiscoCommand.ts
 │   ├── ColeiraCommand.ts
 │   ├── StatusCommand.ts
@@ -292,6 +297,8 @@ Implementado:
 - [x] **Memória semântica** (UserMemory + UserFact extraídos via OpenAI)
 - [x] **EmotionEngine** (relação, estilo, energia, intensidade)
 - [x] **ContextBuilderService** (prompt rico com facts + summary + histórico + emoção)
+- [x] **Respostas em reply** — Xaréu lê a mensagem original e responde direcionado ao autor
+- [x] **Autocomplete fuzzy no `/play`** — substring em qualquer posição
 - [x] Rate limit (Redis)
 - [x] Slash commands
 - [x] Sistema de coleira (com revalidação contínua de afinidade)

@@ -43,14 +43,21 @@ export class AudioService {
   }
 
   /**
-   * Busca o áudio mais similar ao termo. Retorna null se não houver candidatos.
+   * Ranqueia todos os áudios pela query. Retorna ordenado do melhor pro pior.
+   * - Substring contígua → boost 100
+   * - Similaridade textual → 0..1 adicional
+   * Quando query é vazia, retorna todos por ordem alfabética.
    */
-  findBestMatch(query: string): AudioMatch | null {
+  searchAudios(query: string, limit?: number): AudioMatch[] {
     const trimmed = query.trim().toLowerCase()
-    if (!trimmed) return null
-
     const files = this.listAudioFiles()
-    if (files.length === 0) return null
+    if (files.length === 0) return []
+
+    if (!trimmed) {
+      const sorted = [...files].sort((a, b) => a.localeCompare(b))
+      const all = sorted.map((file) => ({ fileName: file, score: 0 }))
+      return limit ? all.slice(0, limit) : all
+    }
 
     const ranked = files
       .map((file): AudioMatch => {
@@ -61,7 +68,16 @@ export class AudioService {
       })
       .sort((a, b) => b.score - a.score)
 
-    return ranked[0] ?? null
+    return limit ? ranked.slice(0, limit) : ranked
+  }
+
+  /**
+   * Busca o áudio mais similar ao termo. Retorna null pra query vazia ou
+   * quando não há candidatos.
+   */
+  findBestMatch(query: string): AudioMatch | null {
+    if (!query.trim()) return null
+    return this.searchAudios(query, 1)[0] ?? null
   }
 
   /** Toca um arquivo (já validado) na conexão atual. Resolve quando termina ou estoura o limite. */
