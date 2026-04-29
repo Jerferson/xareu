@@ -7,6 +7,7 @@ interface QueueItem {
   fileName: string
   guildId: string
   volume: number
+  timeLimitMs: number
 }
 
 /**
@@ -29,6 +30,7 @@ export class AudioQueueService {
     fileName: string
     cooldownSeconds: number
     volume?: number
+    durationSeconds?: number
     connection: VoiceConnection
   }): { ok: boolean; cooldownRemaining?: number } {
     const cooldownMs = args.cooldownSeconds * 1000
@@ -49,8 +51,17 @@ export class AudioQueueService {
       this.userCooldownExpiresAt.set(cooldownKey, now + cooldownMs)
     }
 
+    const timeLimitMs =
+      args.durationSeconds && args.durationSeconds > 0
+        ? args.durationSeconds * 1000
+        : BOT_CONFIG.AUDIO_TIME_LIMIT_MS
     const queue = this.queues.get(args.guildId) ?? []
-    queue.push({ fileName: args.fileName, guildId: args.guildId, volume: args.volume ?? 1.0 })
+    queue.push({
+      fileName: args.fileName,
+      guildId: args.guildId,
+      volume: args.volume ?? 1.0,
+      timeLimitMs,
+    })
     this.queues.set(args.guildId, queue)
     logger.info(
       { guildId: args.guildId, userId: args.userId, fileName: args.fileName, queueSize: queue.length },
@@ -69,7 +80,7 @@ export class AudioQueueService {
     volume = 1.0,
   ): Promise<void> {
     const queue = this.queues.get(guildId) ?? []
-    queue.push({ fileName, guildId, volume })
+    queue.push({ fileName, guildId, volume, timeLimitMs: BOT_CONFIG.AUDIO_TIME_LIMIT_MS })
     this.queues.set(guildId, queue)
     logger.debug({ guildId, fileName, queueSize: queue.length }, '📥 playInternal enfileirou')
     await this.drain(guildId, connection)
@@ -101,7 +112,7 @@ export class AudioQueueService {
           await this.audioService.playFile(
             connection,
             next.fileName,
-            BOT_CONFIG.AUDIO_TIME_LIMIT_MS,
+            next.timeLimitMs,
             next.volume,
           )
         } catch (err) {
