@@ -18,6 +18,7 @@ export function getRedis(): Redis {
 
 export async function disconnectRedis(): Promise<void> {
   if (client) {
+    client.removeAllListeners('error')
     await client.quit()
     client = null
   }

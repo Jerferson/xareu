@@ -293,8 +293,8 @@ export class VoiceService {
 
   /**
    * Reação do bot quando alguém entra no canal onde ele já está:
-   * - afinidade < 30 → rosnado (alto)
-   * - afinidade ≥ 30 (ou sem memória) → latido amigável de cumprimento
+   * - desconhecido (sem memória) ou afinidade < 30 → rosnado (alto)
+   * - afinidade ≥ 30 → latido amigável de cumprimento
    */
   async playEntryReactionFor(guildId: string, userId: string): Promise<void> {
     const connection = getVoiceConnection(guildId)
@@ -304,10 +304,10 @@ export class VoiceService {
     const threshold = AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX
     const affinity = memory?.user.affinity
 
-    if (affinity !== undefined && affinity < threshold) {
+    if (affinity === undefined || affinity < threshold) {
       log.info(
         { guildId, userId, affinity, threshold },
-        '🐺 rosnando: user de afinidade baixa entrou no canal do bot',
+        '🐺 rosnando: desconhecido ou afinidade baixa entrou no canal do bot',
       )
       void this.audioQueue.playInternal(
         connection,
