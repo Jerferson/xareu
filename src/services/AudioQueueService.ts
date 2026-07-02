@@ -1,13 +1,12 @@
 import { VoiceConnection } from '@discordjs/voice'
 import { AudioService } from './AudioService'
 import { logger } from '../utils/logger'
-import { BOT_CONFIG } from '../config/constants'
 
 interface QueueItem {
   fileName: string
   guildId: string
   volume: number
-  timeLimitMs: number
+  timeLimitMs?: number
 }
 
 /**
@@ -54,7 +53,7 @@ export class AudioQueueService {
     const timeLimitMs =
       args.durationSeconds && args.durationSeconds > 0
         ? args.durationSeconds * 1000
-        : BOT_CONFIG.AUDIO_TIME_LIMIT_MS
+        : undefined
     const queue = this.queues.get(args.guildId) ?? []
     queue.push({
       fileName: args.fileName,
@@ -80,7 +79,7 @@ export class AudioQueueService {
     volume = 1.0,
   ): Promise<void> {
     const queue = this.queues.get(guildId) ?? []
-    queue.push({ fileName, guildId, volume, timeLimitMs: BOT_CONFIG.AUDIO_TIME_LIMIT_MS })
+    queue.push({ fileName, guildId, volume })
     this.queues.set(guildId, queue)
     logger.debug({ guildId, fileName, queueSize: queue.length }, '📥 playInternal enfileirou')
     await this.drain(guildId, connection)
