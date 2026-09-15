@@ -37,7 +37,7 @@ export class IntelligenceService {
   /** Garante que o usuário existe e aplica decaimento de afinidade pelo tempo passado. */
   async getOrCreateUser(input: {
     discordId: string
-    username: string
+    username?: string
     displayName?: string | null
   }): Promise<User> {
     const existing = await this.userRepo.findByDiscordId(input.discordId)

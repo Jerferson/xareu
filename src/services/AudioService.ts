@@ -84,7 +84,7 @@ export class AudioService {
   async playFile(
     connection: VoiceConnection,
     fileName: string,
-    timeLimitMs: number,
+    timeLimitMs?: number,
     volume = 1.0,
   ): Promise<void> {
     const audioPath = join(this.audiosPath, fileName)
@@ -98,8 +98,10 @@ export class AudioService {
       const resource = createAudioResource(audioPath, { inlineVolume: true })
       resource.volume?.setVolume(volume)
 
+      let stopTimer: ReturnType<typeof setTimeout> | undefined
+
       const cleanup = (): void => {
-        clearTimeout(stopTimer)
+        if (stopTimer !== undefined) clearTimeout(stopTimer)
         player.removeAllListeners()
         try {
           player.stop()
@@ -108,13 +110,15 @@ export class AudioService {
         }
       }
 
-      const stopTimer = setTimeout(() => {
-        if (player.state.status !== AudioPlayerStatus.Idle) {
-          logger.debug({ fileName, timeLimitMs }, 'Áudio interrompido por limite de tempo')
-        }
-        cleanup()
-        resolvePromise()
-      }, timeLimitMs)
+      if (timeLimitMs !== undefined && timeLimitMs > 0) {
+        stopTimer = setTimeout(() => {
+          if (player.state.status !== AudioPlayerStatus.Idle) {
+            logger.debug({ fileName, timeLimitMs }, 'Áudio interrompido por limite de tempo')
+          }
+          cleanup()
+          resolvePromise()
+        }, timeLimitMs)
+      }
 
       player.on(AudioPlayerStatus.Idle, () => {
         cleanup()

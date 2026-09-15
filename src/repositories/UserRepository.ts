@@ -4,7 +4,7 @@ import { clamp } from '../utils/helpers'
 
 export interface UpsertUserInput {
   discordId: string
-  username: string
+  username?: string
   displayName?: string | null
 }
 
@@ -12,17 +12,18 @@ export class UserRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   async upsertByDiscordId(input: UpsertUserInput): Promise<User> {
+    const update: { username?: string; displayName?: string } = {}
+    if (input.username && input.username !== input.discordId) update.username = input.username
+    if (input.displayName) update.displayName = input.displayName
+
     return this.prisma.user.upsert({
       where: { discordId: input.discordId },
       create: {
         discordId: input.discordId,
-        username: input.username,
+        username: input.username ?? input.discordId,
         displayName: input.displayName ?? null,
       },
-      update: {
-        username: input.username,
-        displayName: input.displayName ?? null,
-      },
+      update,
     })
   }
 
@@ -31,7 +32,7 @@ export class UserRepository {
   }
 
   async updateAffinity(discordId: string, delta: number): Promise<User> {
-    const user = await this.upsertByDiscordId({ discordId, username: discordId })
+    const user = await this.upsertByDiscordId({ discordId })
     const affinity = clamp(user.affinity + delta, AFFINITY_CONFIG.MIN, AFFINITY_CONFIG.MAX)
     return this.prisma.user.update({
       where: { id: user.id },

@@ -25,6 +25,7 @@ interface GuildState {
 export class VoiceService {
   private readonly state = new Map<string, GuildState>()
   private readonly lifecycleLoggedConnections = new WeakSet<VoiceConnection>()
+  private readonly connectionLocks = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly client: Client,
@@ -118,10 +119,30 @@ export class VoiceService {
   // ────────────────────────────────────────────────────────────────
 
   /**
+   * Serializa operações de conexão por guilda. Sem isso, uma segunda chamada
+   * (voiceStateUpdate ou slash command) pode disparar joinVoiceChannel enquanto
+   * o handshake anterior (até 10s + retry) ainda está em andamento, derrubando-o
+   * com "Cannot perform IP discovery - socket closed".
+   */
+  private async withConnectionLock<T>(guildId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.connectionLocks.get(guildId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(fn)
+    this.connectionLocks.set(
+      guildId,
+      run.catch(() => undefined),
+    )
+    return run
+  }
+
+  /**
    * Conecta no canal e aguarda a conexão ficar `Ready`.
    * Se a conexão antiga estiver travada/disconnected, destrói antes de criar a nova.
    */
   async joinChannel(channel: VoiceChannel): Promise<VoiceConnection> {
+    return this.withConnectionLock(channel.guild.id, () => this.doJoinChannel(channel))
+  }
+
+  private async doJoinChannel(channel: VoiceChannel): Promise<VoiceConnection> {
     const guildId = channel.guild.id
     log.info({ channel: channel.name, guildId }, '🎧 Entrando no canal')
 
@@ -293,8 +314,8 @@ export class VoiceService {
 
   /**
    * Reação do bot quando alguém entra no canal onde ele já está:
-   * - afinidade < 30 → rosnado (alto)
-   * - afinidade ≥ 30 (ou sem memória) → latido amigável de cumprimento
+   * - desconhecido (sem memória) ou afinidade < 30 → rosnado (alto)
+   * - afinidade ≥ 30 → latido amigável de cumprimento
    */
   async playEntryReactionFor(guildId: string, userId: string): Promise<void> {
     const connection = getVoiceConnection(guildId)
@@ -304,10 +325,10 @@ export class VoiceService {
     const threshold = AFFINITY_CONFIG.ROSNADO_AFFINITY_MAX
     const affinity = memory?.user.affinity
 
-    if (affinity !== undefined && affinity < threshold) {
+    if (affinity === undefined || affinity < threshold) {
       log.info(
         { guildId, userId, affinity, threshold },
-        '🐺 rosnando: user de afinidade baixa entrou no canal do bot',
+        '🐺 rosnando: desconhecido ou afinidade baixa entrou no canal do bot',
       )
       void this.audioQueue.playInternal(
         connection,

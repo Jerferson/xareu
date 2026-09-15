@@ -20,6 +20,14 @@ export class PlayCommand implements XareuCommand {
     .addStringOption((opt) =>
       opt.setName('audio').setDescription('Nome (ou parte) do áudio').setRequired(true).setAutocomplete(true),
     )
+    .addIntegerOption((opt) =>
+      opt
+        .setName('duracao')
+        .setDescription('Duração em segundos (padrão: 5)')
+        .setRequired(false)
+        .setMinValue(1)
+        .setMaxValue(60),
+    )
 
   constructor(
     private readonly audioService: AudioService,
@@ -57,6 +65,7 @@ export class PlayCommand implements XareuCommand {
       return
     }
     const query = interaction.options.getString('audio', true)
+    const durationSeconds = interaction.options.getInteger('duracao') ?? undefined
     const connection = this.voiceService.getConnection(interaction.guildId)
     if (!connection) {
       await interaction.reply({
@@ -82,6 +91,7 @@ export class PlayCommand implements XareuCommand {
       fileName: match.fileName,
       cooldownSeconds: config.audioCooldown,
       volume: config.volume,
+      durationSeconds,
       connection,
     })
 

@@ -113,7 +113,6 @@ export class VoiceStateHandler {
       if (config.leashOwnerId && this.voiceService.isFollowing(guildId)) {
         const owner = await this.intelligence.getOrCreateUser({
           discordId: config.leashOwnerId,
-          username: config.leashOwnerId,
         })
         if (owner.affinity < AFFINITY_CONFIG.LEASH_MIN) {
           logger.info(
@@ -134,13 +133,13 @@ export class VoiceStateHandler {
         return
       }
 
-      // Coleira: se há dono definido e o usuário não é o dono → ignora
+      // Coleira: se há dono definido e o usuário não é o dono → ignora.
+      // Bot fica com o dono, não segue quem não tem coleira.
       if (config.leashOwnerId && userId !== config.leashOwnerId) {
-        const following = this.voiceService.isFollowing(guildId)
-        logger.info({ userId, owner: config.leashOwnerId, following }, '🎀 branch: não-dono moveu')
-        if (following) {
-          await this.voiceService.handleChannelEntry(newChannel)
-        }
+        logger.info(
+          { userId, owner: config.leashOwnerId, following: this.voiceService.isFollowing(guildId) },
+          '🎀 branch: não-dono moveu — bot ignora',
+        )
         return
       }
 
