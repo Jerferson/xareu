@@ -48,9 +48,12 @@ export class ColeiraCommand implements XareuCommand {
         return
       }
       await this.guildConfigRepo.setLeashOwner(interaction.guildId, interaction.user.id)
+      // Conectar no canal de voz pode levar até ~20s (timeout + retry) — defere
+      // antes, senão a interação expira (limite do Discord é 3s pra ack).
+      await interaction.deferReply()
       const wentToUser = await this.voiceService.goToUser(interaction.guildId, interaction.user.id)
       const tail = wentToUser ? 'Tô indo aí agora! 🐕' : 'Entra num canal de voz pra eu te seguir.'
-      await interaction.reply(`🎀 ${interaction.user} agora é dono do Xaréu! ${tail}`)
+      await interaction.editReply(`🎀 ${interaction.user} agora é dono do Xaréu! ${tail}`)
       return
     }
 
@@ -77,9 +80,10 @@ export class ColeiraCommand implements XareuCommand {
         return
       }
       await this.guildConfigRepo.setLeashOwner(interaction.guildId, target.id)
+      await interaction.deferReply()
       const wentToUser = await this.voiceService.goToUser(interaction.guildId, target.id)
       const tail = wentToUser ? 'Já fui atrás dele! 🐕' : ''
-      await interaction.reply(`🎀 Coleira passada pra ${target}! ${tail}`.trim())
+      await interaction.editReply(`🎀 Coleira passada pra ${target}! ${tail}`.trim())
       return
     }
 
@@ -94,8 +98,9 @@ export class ColeiraCommand implements XareuCommand {
       }
       await this.guildConfigRepo.setLeashOwner(interaction.guildId, null)
       // Para de seguir e volta pra casinha imediatamente
+      await interaction.deferReply()
       await this.voiceService.goToCasinha(interaction.guildId)
-      await interaction.reply('🎀 Coleira solta. Xaréu voltou pra casinha 🏠')
+      await interaction.editReply('🎀 Coleira solta. Xaréu voltou pra casinha 🏠')
       return
     }
 
