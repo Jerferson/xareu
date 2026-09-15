@@ -51,9 +51,7 @@ export class AudioQueueService {
     }
 
     const timeLimitMs =
-      args.durationSeconds && args.durationSeconds > 0
-        ? args.durationSeconds * 1000
-        : undefined
+      args.durationSeconds && args.durationSeconds > 0 ? args.durationSeconds * 1000 : undefined
     const queue = this.queues.get(args.guildId) ?? []
     queue.push({
       fileName: args.fileName,
@@ -108,12 +106,7 @@ export class AudioQueueService {
           '🎶 drain processando item',
         )
         try {
-          await this.audioService.playFile(
-            connection,
-            next.fileName,
-            next.timeLimitMs,
-            next.volume,
-          )
+          await this.audioService.playFile(connection, next.fileName, next.timeLimitMs, next.volume)
         } catch (err) {
           logger.error({ err, fileName: next.fileName }, 'Erro ao processar item da fila')
         }
